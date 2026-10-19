@@ -8,7 +8,7 @@ service firebase.storage {
   match /b/{bucket}/o {
 
     function staffDocPath() {
-      return /databases/ai-studio-cardcorner-bf216942-1486-4ef1-bcb0-4a7b0673efe2/documents/staff/$(request.auth.uid);
+      return /databases/ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad/documents/staff/$(request.auth.uid);
     }
 
     // Firebase Storage `firestore.get()` cannot read non-(default) named Firestore databases in
