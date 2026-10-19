@@ -262,7 +262,7 @@ export const ManualAddLeadModal: React.FC<ManualAddLeadModalProps> = ({
           <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)} placeholder="如 迪拜" className="field field-sm" />
         </FormField>
         <FormField label="估值（USD）" hint="不确定可以留空">
-          <input type="number" min={0} value={newEstValue} onChange={e => setNewEstValue(e.target.value)} placeholder="待估值" className="field field-sm font-sign" />
+          <input type="number" min={0} step="0.01" value={newEstValue} onChange={e => setNewEstValue(e.target.value)} placeholder="待估值" className="field field-sm font-sign" />
         </FormField>
       </div>
       <FormField label="需求说明">
