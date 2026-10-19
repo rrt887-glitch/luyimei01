@@ -251,7 +251,7 @@ export const zh = {
     captchaRefresh: '看不清？换一张',
     captchaAlt: '图片验证码',
     captchaRetry: '重新加载',
-    captchaUnavailable: '注册服务暂时连不上（后台验证码服务未部署或已停止），请稍后再试，或通过页面底部的联系方式联系我们。',
+    captchaUnavailable: '注册服务暂时连不上（后台验证码服务未部署或未开放访问），请稍后再试，或通过页面底部的联系方式联系我们。',
     captchaNetwork: '网络连不上注册服务，请检查网络后点图片重试。在中国大陆需要能访问 Google 服务的网络。',
     captchaHint: '不区分大小写。看不清可以点图片换一张。',
     errors: {

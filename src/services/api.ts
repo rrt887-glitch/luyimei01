@@ -64,6 +64,21 @@ export class SignupError extends Error {
   }
 }
 
+/** True when the function's host answers at all (any status), i.e. the visitor's network can reach it. */
+async function canReachFunction(name: string): Promise<boolean> {
+  const url = `https://${functions.region}-${functions.app.options.projectId}.cloudfunctions.net/${name}`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 6000);
+  try {
+    await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req, timeout: number = TIMEOUTS.adminCallable): Promise<Res> {
   const callable = httpsCallable<Req, Res>(functions, name, { timeout });
   try {
@@ -73,7 +88,13 @@ async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req
     const details = (err?.details || {}) as { reason?: string };
     if (details.reason) throw new SignupError(details.reason, err?.message);
     if (code === 'not-found') throw new SignupError('service_unavailable', err?.message);
-    if (code === 'deadline-exceeded' || code === 'unavailable' || code === 'internal') {
+    if (code === 'internal') {
+      // The browser hides why the request failed (a 404 or 403 from Google arrives without CORS
+      // headers and looks exactly like a dropped connection). Probe the address: if Google answers
+      // at all, the network is fine and the function is missing or not open to visitors.
+      throw new SignupError((await canReachFunction(name)) ? 'service_unavailable' : 'network', err?.message);
+    }
+    if (code === 'deadline-exceeded' || code === 'unavailable') {
       throw new SignupError('network', err?.message);
     }
     throw new SignupError('unknown', err?.message);

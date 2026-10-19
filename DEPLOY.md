@@ -96,6 +96,9 @@ npx firebase-tools deploy --only hosting
    在浏览器打开 `https://us-central1-gen-lang-client-0359861747.cloudfunctions.net/getSignupCaptcha`。
    - 看到一段含 `Bad Request` 的 JSON：已部署，正常（浏览器直接打开就是这个结果）。
    - 看到 `404` 页面：函数还没部署，执行 `npx firebase-tools deploy --only functions`。
+   - 看到 `403 Forbidden` / `Your client does not have permission`：函数部署了，但没开放给访客调用。到 Google Cloud 控制台 → Cloud Run → 选中 `getsignupcaptcha` → 「安全」（Security）→ 选「允许未经身份验证的调用」（Allow unauthenticated invocations）后保存；`registerbuyer` 同样设置一次。也可以在命令行执行：
+     `gcloud run services add-iam-policy-binding getsignupcaptcha --region=us-central1 --member=allUsers --role=roles/run.invoker --project=gen-lang-client-0359861747`（把 `getsignupcaptcha` 换成 `registerbuyer` 再执行一次）。
+     如果提示组织策略不允许 `allUsers`，需要在「IAM 和管理 → 组织政策」里放开「网域限定共享」（Domain restricted sharing），或改用不属于组织的项目。
    - 打不开：当前网络访问不了 Google 服务（中国大陆需要能访问 Google 的网络，见第六节）。
 
 1. **绑定正式域名**：Firebase 控制台 → Hosting →「添加自定义网域」，按提示在域名服务商处添加 DNS 记录，HTTPS 证书会自动签发。
