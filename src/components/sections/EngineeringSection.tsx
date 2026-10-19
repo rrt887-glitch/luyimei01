@@ -21,7 +21,7 @@ export const EngineeringSection: React.FC = () => {
             width={960}
             height={717}
             decoding="async"
-            alt="实验室人员检测道路养护材料试样"
+            alt={d.misc.labAlt}
             className="w-full aspect-[4/3] lg:aspect-[5/4] object-cover rounded-2xl"
             loading="lazy"
             referrerPolicy="no-referrer"

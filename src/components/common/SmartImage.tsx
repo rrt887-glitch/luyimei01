@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useI18n } from '../../i18n';
 
 const FAILED: Record<string, string> = { zh: '图片加载失败', en: 'Image failed to load', ar: 'تعذّر تحميل الصورة', ru: 'Не удалось загрузить фото' };
@@ -12,6 +12,10 @@ export const SmartImage: React.FC<
 > = ({ fallback, wrapperClassName = 'absolute inset-0', className = '', onLoad, onError, ...img }) => {
   const { lang } = useI18n();
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
+  // A photo served from cache can finish before the handlers below are attached: check on mount.
+  const imgRef = useCallback((el: HTMLImageElement | null) => {
+    if (el && el.complete) setState(el.naturalWidth > 0 ? 'ok' : 'error');
+  }, []);
   return (
     <span className={`block overflow-hidden ${wrapperClassName} ${state === 'loading' ? 'img-loading' : ''}`}>
       {state === 'error' ? (
@@ -26,6 +30,7 @@ export const SmartImage: React.FC<
         )
       ) : (
         <img
+          ref={imgRef}
           decoding="async"
           {...img}
           className={`${className} transition-opacity duration-300 ${state === 'ok' ? 'opacity-100' : 'opacity-0'}`}

@@ -26,12 +26,15 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
     { label: d.nav.process, href: '#process' },
     { label: d.nav.cases, href: '#cases' }
   ];
+  // Only details that were actually set in the console: never print a made-up phone, ID or email.
   const contacts = [
-    contactCfg.hotlinePhone ? { icon: Phone, label: '商务热线', value: contactCfg.hotlinePhone } : null,
+    contactCfg.hotlinePhone ? { icon: Phone, label: d.footer.hotline, value: contactCfg.hotlinePhone } : null,
     waConfigured ? { icon: MessageSquare, label: 'WhatsApp', value: contactCfg.whatsappDisplay } : null,
-    { icon: MessageSquare, label: '企业微信', value: contactCfg.wechatId || 'LYM-Engineering-GZ' },
-    { icon: Mail, label: '邮箱', value: contactCfg.officialEmail || 'business@luyimei.com' }
+    contactCfg.wechatId ? { icon: MessageSquare, label: d.footer.wechat, value: contactCfg.wechatId } : null,
+    contactCfg.officialEmail ? { icon: Mail, label: d.footer.email, value: contactCfg.officialEmail } : null
   ].filter(Boolean) as { icon: typeof Phone; label: string; value: string }[];
+  // The address set in the console is in Chinese; other languages show the translated company address.
+  const address = lang === 'zh' ? contactCfg.address || d.footer.address : d.footer.address;
 
   return (
     <footer className="cv-auto bg-night text-white/75 border-t border-white/10">
@@ -46,7 +49,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
           </p>
           <p className="mt-4 flex items-start gap-2 text-sm">
             <MapPin className="w-4 h-4 text-sky shrink-0 mt-0.5" />
-            <span>广州高新技术产业开发区中新知识城智造产业园</span>
+            <span>{address}</span>
           </p>
         </div>
 
@@ -77,18 +80,19 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
         </nav>
 
         <div className="lg:col-span-4">
-          <h4 className="text-sm font-semibold text-white mb-4">商务与技术支持</h4>
+          <h4 className="text-sm font-semibold text-white mb-4">{d.footer.supportTitle}</h4>
           <ul className="space-y-2.5 text-sm">
             {contacts.map(c => (
               <li key={c.label} className="flex items-center gap-2.5">
                 <c.icon className="w-4 h-4 text-sky shrink-0" />
-                <span className="text-white/55 w-16 shrink-0">{c.label}</span>
+                <span className="text-white/55 w-20 shrink-0">{c.label}</span>
                 <span className="font-sign text-white break-all">{c.value}</span>
               </li>
             ))}
           </ul>
           <p className="mt-8 text-lg font-bold text-white">
             {d.footer.mottoMain}
+            {lang === 'zh' ? '' : ' '}
             {d.footer.mottoSub}
           </p>
         </div>
@@ -104,7 +108,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
               className="inline-flex items-center gap-1.5 hover:text-white transition-colors"
             >
               <Lock className="w-3.5 h-3.5" />
-              员工登录
+              {d.footer.staffLogin}
             </button>
           )}
         </div>

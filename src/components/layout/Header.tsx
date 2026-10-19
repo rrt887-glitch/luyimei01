@@ -176,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenAccount}
             className="hidden sm:inline-flex btn btn-sm btn-outline"
-            title="买家注册、登录与询价记录"
+            title={d.misc.accountTitle}
           >
             {buyer ? (
               <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true" />

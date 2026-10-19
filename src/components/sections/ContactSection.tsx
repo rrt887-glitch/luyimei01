@@ -23,6 +23,8 @@ interface ContactSectionProps {
   onInquirySubmitted: (message: string) => void;
 }
 
+const fill = (tpl: string, vars: Record<string, string | number>) => tpl.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
+
 export const ContactSection: React.FC<ContactSectionProps> = ({
   prefilledNeed,
   prefilledMessage,
@@ -62,6 +64,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
   const [offlineResult, setOfflineResult] = useState<SubmitInquiryResult | null>(null);
   const [pendingOutboxCount, setPendingOutboxCount] = useState<number>(0);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const dt = d.contact.direct;
   const [errors, setErrors] = useState<{ name?: string; phone?: string; message?: string }>({});
 
   useEffect(() => {
@@ -81,12 +84,12 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(label);
-      onInquirySubmitted(`已复制${label}：${text}`);
+      onInquirySubmitted(fill(dt.copiedToast, { label, text }));
       setTimeout(() => {
         setCopiedField(prev => (prev === label ? null : prev));
       }, 2500);
     } catch {
-      onInquirySubmitted(`请手动复制${label}：${text}`);
+      onInquirySubmitted(fill(dt.copyManual, { label, text }));
     }
   };
 
@@ -98,11 +101,11 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
       if (res.flushedCount > 0 && res.remainingCount === 0) {
         setOfflineResult(null);
         setIsSuccess(true);
-        onInquirySubmitted(`待发队列中的 ${res.flushedCount} 条询盘已全部成功同步至云端！`);
+        onInquirySubmitted(fill(dt.flushedAll, { n: res.flushedCount }));
       } else if (res.flushedCount > 0) {
-        onInquirySubmitted(`已同步 ${res.flushedCount} 条询盘，仍有 ${res.remainingCount} 条等待网络恢复。`);
+        onInquirySubmitted(fill(dt.flushedSome, { n: res.flushedCount, m: res.remainingCount }));
       } else {
-        onInquirySubmitted('当前国际云端连接仍受阻，建议使用下方广州总部微信/电话/邮件直连通道。');
+        onInquirySubmitted(dt.flushNone);
       }
     } finally {
       setIsRetryingOutbox(false);
@@ -158,14 +161,12 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
         // Honest offline/timeout fallback: saved in local outbox + show direct contact channels
         setIsSuccess(false);
         setOfflineResult(result);
-        onInquirySubmitted(
-          `国际云端连接响应超时（8秒），询盘 [${result.id}] 已真实存入本机待发队列，请结合直连通道联系顾问。`
-        );
+        onInquirySubmitted(fill(dt.timeout, { id: result.id }));
       }
     } catch (err) {
       console.error('Inquiry submit unexpected error:', err);
       setIsSuccess(false);
-      onInquirySubmitted('提交遇到异常，请直接使用页面下方的广州总部电话或微信直联。');
+      onInquirySubmitted(dt.unexpected);
     } finally {
       setIsSubmitting(false);
     }
@@ -184,10 +185,10 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
 
   const channels: { key: string; label: string; value: string; href?: string; copyLabel: string }[] = [
     ...(activePhone
-      ? [{ key: 'phone', label: '商务热线', value: activePhone, href: `tel:${activePhone.replace(/[^0-9+]/g, '')}`, copyLabel: '总部热线电话' }]
+      ? [{ key: 'phone', label: dt.hotline, value: activePhone, href: `tel:${activePhone.replace(/[^0-9+]/g, '')}`, copyLabel: dt.hotline }]
       : []),
-    { key: 'wechat', label: '企业微信', value: activeWeChat, copyLabel: '企业微信号' },
-    { key: 'email', label: '工程邮箱', value: activeEmail, href: `mailto:${activeEmail}`, copyLabel: '官方工程邮箱' }
+    ...(activeWeChat ? [{ key: 'wechat', label: dt.wechat, value: activeWeChat, copyLabel: dt.wechat }] : []),
+    ...(activeEmail ? [{ key: 'email', label: dt.email, value: activeEmail, href: `mailto:${activeEmail}`, copyLabel: dt.email }] : [])
   ];
 
   const fieldClass = (hasError?: boolean) => `field ${hasError ? 'field-error' : ''}`;
@@ -205,7 +206,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
           <p className="mt-5 text-[15px] sm:text-base text-white/75 leading-relaxed max-w-[32em]">{d.contact.desc}</p>
 
           <div className="mt-10">
-            <p className="text-sm text-white/60">不方便填表？也可以直接联系广州总部，7×24 小时有人值守。</p>
+            <p className="text-sm text-white/60">{dt.intro}</p>
             <ul className="mt-4 divide-y divide-white/10 border-y border-white/10">
               {channels.map(c => (
                 <li key={c.key} className="flex items-center justify-between gap-3 py-3.5">
@@ -223,10 +224,10 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                     type="button"
                     onClick={() => handleCopyText(c.value, c.copyLabel)}
                     className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-sm text-white/80 hover:text-white hover:bg-white/10 transition-colors"
-                    aria-label={`复制${c.label}`}
+                    aria-label={`${dt.copy} ${c.label}`}
                   >
                     {copiedField === c.copyLabel ? <Check className="w-4 h-4 text-sky" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedField === c.copyLabel ? '已复制' : '复制'}</span>
+                    <span>{copiedField === c.copyLabel ? dt.copied : dt.copy}</span>
                   </button>
                 </li>
               ))}
@@ -254,28 +255,23 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
               <div className="flex items-start gap-2.5">
                 <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div className="space-y-1">
-                  <div className="font-bold">询价暂未送达，已保存在本机</div>
-                  <p className="text-amber-900 leading-relaxed">
-                    连接服务器超时（8 秒），常见于中国大陆直连境外网络。询价单{' '}
-                    <span className="font-sign font-semibold">{offlineResult.id}</span> 已保存在这台设备上（共{' '}
-                    <span className="font-sign font-semibold">{pendingOutboxCount}</span> 条待发送），网络恢复后会自动补发。
-                    为免耽误工期，也可以用下面任一方式直接联系我们：
-                  </p>
+                  <div className="font-bold">{dt.offlineTitle}</div>
+                  <p className="text-amber-900 leading-relaxed">{fill(dt.offlineBody, { id: offlineResult.id, n: pendingOutboxCount })}</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => handleCopyText(buildSummaryText(offlineResult), '询盘摘要内容')}
+                  onClick={() => handleCopyText(buildSummaryText(offlineResult), dt.summaryLabel)}
                   className="btn btn-sm bg-amber-900 text-white hover:bg-amber-950"
                 >
                   <Copy className="w-4 h-4" />
-                  <span>复制询价内容</span>
+                  <span>{dt.copySummary}</span>
                 </button>
                 <a href={buildMailtoHref(offlineResult)} className="btn btn-sm bg-white border border-amber-300 hover:border-amber-600 text-amber-950">
                   <Mail className="w-4 h-4" />
-                  <span>发邮件</span>
+                  <span>{dt.sendEmail}</span>
                 </a>
                 {activePhone && (
                   <a
@@ -283,7 +279,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                     className="btn btn-sm bg-white border border-amber-300 hover:border-amber-600 text-amber-950"
                   >
                     <PhoneCall className="w-4 h-4" />
-                    <span>打电话</span>
+                    <span>{dt.call}</span>
                   </a>
                 )}
                 <button
@@ -293,7 +289,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                   className="btn btn-sm bg-amber-100 hover:bg-amber-200 text-amber-950"
                 >
                   <RefreshCw className={`w-4 h-4 ${isRetryingOutbox ? 'animate-spin' : ''}`} />
-                  <span>{isRetryingOutbox ? '正在重新发送…' : '重新发送'}</span>
+                  <span>{isRetryingOutbox ? dt.resending : dt.resend}</span>
                 </button>
               </div>
             </div>
@@ -301,7 +297,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
 
           {!offlineResult && pendingOutboxCount > 0 && (
             <div className="mb-5 px-4 py-3 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-between gap-3 text-sm text-amber-950">
-              <span>这台设备上有 {pendingOutboxCount} 条询价还没送达</span>
+              <span>{fill(dt.pending, { n: pendingOutboxCount })}</span>
               <button
                 type="button"
                 disabled={isRetryingOutbox}
@@ -309,7 +305,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                 className="btn btn-sm bg-amber-200/70 hover:bg-amber-300/70 text-amber-950"
               >
                 <RefreshCw className={`w-4 h-4 ${isRetryingOutbox ? 'animate-spin' : ''}`} />
-                <span>重新发送</span>
+                <span>{dt.resend}</span>
               </button>
             </div>
           )}

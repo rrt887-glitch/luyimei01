@@ -39,8 +39,8 @@ export const PI_CSS = `
 .pi-co-zh{font-size:11.5px;font-weight:600;margin-top:1px}
 .pi-co-meta{color:var(--muted);margin-top:4px;font-size:10px;line-height:1.5}
 .pi-title{text-align:end;flex:none}
-.pi-title h1{margin:0;font-size:20px;font-weight:800;letter-spacing:.06em;color:var(--accent);line-height:1.15}
-.pi-title h1 .pi-zh{display:block;font-size:13px;letter-spacing:.3em;color:var(--accent);font-weight:600;margin-top:2px}
+.pi-title h2{margin:0;font-size:20px;font-weight:800;letter-spacing:.06em;color:var(--accent);line-height:1.15}
+.pi-title h2 .pi-zh{display:block;font-size:13px;letter-spacing:.3em;color:var(--accent);font-weight:600;margin-top:2px}
 .pi-meta{margin-top:10px;border-collapse:collapse;margin-inline-start:auto}
 .pi-meta td{padding:1.5px 0;font-size:10.5px;vertical-align:top}
 .pi-meta td:first-child{color:var(--muted);padding-inline-end:12px;text-align:start}
@@ -151,9 +151,9 @@ export const ProformaSheet = React.forwardRef<HTMLDivElement, { doc: PiDocument 
           </div>
         </div>
         <div className="pi-title">
-          <h1>
+          <h2>
             <L k="title" lang={lang} />
-          </h1>
+          </h2>
           <table className="pi-meta">
             <tbody>
               <tr>

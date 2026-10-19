@@ -144,7 +144,7 @@ export const ProductInquiryModal: React.FC<ProductInquiryModalProps> = ({ produc
               {shown.name}
             </h2>
             <p className="font-sign text-xs text-slate-500 truncate">
-              {product.model}　{product.price}
+              <span dir="ltr">{product.model}　{product.price}</span>
               {shown.unit ? ` ${shown.unit}` : ''}
             </p>
           </div>

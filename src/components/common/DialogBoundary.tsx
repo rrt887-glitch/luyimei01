@@ -1,4 +1,5 @@
 import React from 'react';
+import { boundaryText } from '../../i18n/boundaryText';
 
 /**
  * Dialogs are downloaded when first opened. If that download fails (flaky mobile network, or a new
@@ -14,7 +15,7 @@ export class DialogBoundary extends React.Component<{ children: React.ReactNode;
 
   componentDidCatch(error: Error) {
     console.error('Dialog failed to load:', error);
-    this.props.onError(navigator.onLine === false ? '网络已断开，连上网络后再试。' : '窗口没能打开：网络不稳定或网站刚更新，请刷新页面后再试。');
+    this.props.onError(navigator.onLine === false ? boundaryText().offline : boundaryText().dialogFailed);
     // Let the next attempt try again.
     setTimeout(() => this.setState({ failed: false }), 0);
   }

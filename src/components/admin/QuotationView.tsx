@@ -494,7 +494,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
     <div className="adm-page">
       <PageHeader
         title="报价单"
-        description="填写客户和条款，添加商品，右侧就是客户收到的样子。开具时自动保存，并更新关联线索的估值和阶段。"
+        description="填写客户和条款，添加商品，预览就是客户收到的样子。开具时自动保存，并更新关联线索的估值和阶段。"
         actions={
           <>
             <button type="button" onClick={() => setSettingsOpen(true)} className="btn btn-sm btn-ghost">

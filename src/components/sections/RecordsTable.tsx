@@ -84,13 +84,13 @@ export const RecordsTable: React.FC<RecordsTableProps> = ({ products, onOpenDeta
                 const t = localizeProduct(p, lang, d, categories);
                 return (
                   <tr key={p.id} className="hover:bg-concrete/50 transition-colors align-top">
-                    <td className="py-4 px-5">
+                    <td className="py-4 px-5 min-w-[12rem]">
                       <div className="font-semibold text-night">{t.name}</div>
-                      <div className="font-sign text-slate-500 text-[13px] mt-0.5">{p.model}</div>
+                      <div className="font-sign text-slate-500 text-[13px] mt-0.5 whitespace-nowrap" dir="ltr">{p.model}</div>
                     </td>
                     <td className="py-4 px-4 text-slate-600 whitespace-nowrap">{t.kind}</td>
                     <td className="py-4 px-4 font-sign font-semibold text-night whitespace-nowrap">
-                      {p.price} <span className="font-sans font-normal text-slate-500">{t.unit}</span>
+                      <span dir="ltr">{p.price}</span> <span className="font-sans font-normal text-slate-500">{t.unit}</span>
                     </td>
                     <td className="py-4 px-4">
                       <span className="inline-flex items-start gap-1.5 text-night">

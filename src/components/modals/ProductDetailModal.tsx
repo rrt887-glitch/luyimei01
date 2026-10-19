@@ -142,7 +142,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                   >
                     <ChevronRight className="w-5 h-5 rtl:rotate-180" />
                   </button>
-                  <span className="absolute bottom-3 start-3 rounded-full bg-night/75 px-2.5 py-1 font-sign text-xs text-white" aria-live="polite">
+                  <span className="absolute bottom-3 start-3 rounded-full bg-night/75 px-2.5 py-1 font-sign text-xs text-white" aria-live="polite" dir="ltr">
                     {index + 1} / {media.length}
                   </span>
                 </>
@@ -195,13 +195,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 
               <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-1 rounded-xl bg-concrete px-4 py-3">
                 <div className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span className="font-sign text-[1.75rem] leading-none font-semibold text-night">{product.price}</span>
+                  <span className="font-sign text-[1.75rem] leading-none font-semibold text-night" dir="ltr">{product.price}</span>
                   {t.unit && <span className="text-sm text-slate-500">{t.unit}</span>}
                 </div>
                 {tier && (
                   <p className="text-sm text-night">
                     <span className="text-slate-500">{d.dialog.tierPrice}</span>{' '}
-                    <span className="font-sign font-semibold">{tier.priceUsd}</span>{' '}
+                    <span className="font-sign font-semibold" dir="ltr">{tier.priceUsd}</span>{' '}
                     <span className="text-slate-500">· {d.dialog.tierFrom.replace('{qty}', String(tier.minQty))}</span>
                   </p>
                 )}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { boundaryText } from '../../i18n/boundaryText';
 
 const RELOAD_FLAG = 'lym_chunk_reload_at';
 
@@ -45,17 +46,16 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   render() {
     if (!this.state.error) return this.props.children;
     const updated = isChunkLoadError(this.state.error);
+    const t = boundaryText();
     return (
       <div role="alert" className="min-h-screen flex items-center justify-center bg-concrete px-6">
         <div className="max-w-md w-full rounded-2xl bg-white p-8 text-center shadow-sm border border-line">
-          <h1 className="text-xl font-bold text-night">{updated ? '网站刚刚更新过' : '页面出了点问题'}</h1>
+          <h1 className="text-xl font-bold text-night">{updated ? t.updatedTitle : t.errorTitle}</h1>
           <p className="mt-3 text-[15px] text-slate-600 leading-relaxed">
-            {updated
-              ? '请刷新页面以加载最新版本。'
-              : '请刷新重试。如果仍然打不开，可以直接通过电话、微信或邮件联系我们。'}
+            {updated ? t.updatedBody : t.errorBody}
           </p>
           <button type="button" onClick={() => window.location.reload()} className="btn btn-primary mt-6">
-            刷新页面
+            {t.reload}
           </button>
         </div>
       </div>

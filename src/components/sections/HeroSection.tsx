@@ -36,7 +36,7 @@ export const HeroSection: React.FC = () => {
             width={1376}
             height={768}
             decoding="async"
-            alt="施工人员在高速公路上使用灌缝设备处理路面裂缝"
+            alt={d.misc.heroAlt}
             className="hero-photo absolute inset-0 w-full h-full object-cover object-center sm:object-[62%_center]"
             loading="eager"
             fetchPriority="high"

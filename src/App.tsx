@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
-import { I18nProvider } from './i18n';
+import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
+import { I18nProvider, useI18n } from './i18n';
 import { Product, ProductFilterCategory } from './types';
 import { StaffAccount } from './types/admin';
 import { api } from './services/api';
@@ -42,6 +42,9 @@ const ConsoleFallback: React.FC = () => (
 );
 
 const MainApp: React.FC = () => {
+  const { d } = useI18n();
+  const dictRef = useRef(d);
+  dictRef.current = d;
   const [viewMode, setViewMode] = useState<'portal' | 'admin'>('portal');
   const [adminSession, setAdminSession] = useState<StaffAccount | null>(readAdminSession);
 
@@ -74,7 +77,7 @@ const MainApp: React.FC = () => {
     );
     const unsubscribeFavs = api.subscribeToFavorites(setSavedIds, err => {
       console.warn('Real-time sync error:', err);
-      showToast('云端数据实时同步异常，请检查网络连接');
+      showToast(dictRef.current.misc.syncFailed);
     });
     return () => {
       unsubscribeProducts();
@@ -144,10 +147,10 @@ const MainApp: React.FC = () => {
     setSyncingFavId(id);
     try {
       const saved = await api.toggleFavorite(id, savedIds.has(id));
-      showToast(saved ? '已同步加入云端收藏' : '已从云端收藏移除');
+      showToast(saved ? d.misc.favAdded : d.misc.favRemoved);
     } catch (error) {
       console.error('Cloud favorite sync error:', error);
-      showToast('云端保存失败：操作未能写入数据库，已保持原样');
+      showToast(d.misc.favFailed);
     } finally {
       setSyncingFavId(null);
     }
