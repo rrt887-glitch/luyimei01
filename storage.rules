@@ -11,14 +11,18 @@ service firebase.storage {
       return /databases/ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad/documents/staff/$(request.auth.uid);
     }
 
-    // The staff/{uid} document is the single source of truth (same policy as firestore.rules):
-    // Custom Claims are never trusted, so suspending, demoting or deleting the staff document
-    // immediately revokes media write access.
+    // Firebase Storage `firestore.get()` cannot read non-(default) named Firestore databases in
+    // production, so we check server-managed Custom Claims (`role: 'super_admin', staff: true`,
+    // kept in sync and revoked on suspension/deletion by `syncAuthWithStaffState` in Cloud Functions)
+    // first, with `staffDocPath()` retained as fallback.
     function isSuperAdmin() {
-      return request.auth != null &&
-        firestore.exists(staffDocPath()) &&
-        firestore.get(staffDocPath()).data.role == 'super_admin' &&
-        firestore.get(staffDocPath()).data.get('status', 'active') == 'active';
+      return request.auth != null && (
+        (request.auth.token.get('role', '') == 'super_admin' &&
+         request.auth.token.get('staff', false) == true) ||
+        (firestore.exists(staffDocPath()) &&
+         firestore.get(staffDocPath()).data.role == 'super_admin' &&
+         firestore.get(staffDocPath()).data.get('status', 'active') == 'active')
+      );
     }
 
     // Product Images: public read, super_admin write, max 10MB, image/* content type only
