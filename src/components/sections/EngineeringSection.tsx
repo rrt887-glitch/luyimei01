@@ -1,7 +1,8 @@
 import React from 'react';
 import { useI18n } from '../../i18n';
 import { Check, ChevronRight } from 'lucide-react';
-import labImage from '../../assets/images/materials_lab_testing_1791786380385.jpg';
+import labImage from '../../assets/images/materials_lab_testing_1791786380385.webp';
+import labImageSmall from '../../assets/images/materials_lab_testing_1791786380385-sm.webp';
 import { Reveal } from '../common/Motion';
 
 export const EngineeringSection: React.FC = () => {
@@ -15,6 +16,11 @@ export const EngineeringSection: React.FC = () => {
         <Reveal as="figure" className="relative">
           <img
             src={labImage}
+            srcSet={`${labImageSmall} 720w, ${labImage} 960w`}
+            sizes="(min-width: 1024px) 55vw, 100vw"
+            width={960}
+            height={717}
+            decoding="async"
             alt="实验室人员检测道路养护材料试样"
             className="w-full aspect-[4/3] lg:aspect-[5/4] object-cover rounded-2xl"
             loading="lazy"

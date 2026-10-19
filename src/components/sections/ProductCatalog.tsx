@@ -1,10 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
 import { useI18n } from '../../i18n';
 import { Product, ProductFilterCategory } from '../../types';
 import { ProductIllustration } from '../common/SvgIllustrations';
 import { Search, Heart, ChevronLeft, ChevronRight, SlidersHorizontal, X, Loader2, MessageCircle, Play, ChevronDown, Info } from 'lucide-react';
 import { getWhatsAppInquiryUrl, hasConfiguredWhatsApp, useSiteContactConfig } from '../../config/whatsapp';
-import { ProductVideoModal } from '../modals/ProductVideoModal';
+import { DialogBoundary } from '../common/DialogBoundary';
+import { SmartImage } from '../common/SmartImage';
+
+const ProductVideoModal = lazy(() => import('../modals/ProductVideoModal').then(m => ({ default: m.ProductVideoModal })));
 import { Reveal } from '../common/Motion';
 import { categoryLabel, useProductCategories } from '../../config/categories';
 import { localizeProduct } from '../../utils/productText';
@@ -251,13 +254,18 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                     aria-label={`${d.catalog.details}：${name}`}
                   >
                     {photos.length > 0 ? (
-                      <img
-                        key={photoIdx}
+                      <SmartImage
+                        key={photos[photoIdx]}
                         src={photos[photoIdx]}
                         alt={name}
                         referrerPolicy="no-referrer"
                         loading="lazy"
-                        className="animate-in w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+                        className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]"
+                        fallback={
+                          <span className="flex w-full h-full items-center justify-center bg-concrete p-8">
+                            <ProductIllustration id={product.id} className="max-h-full w-auto" />
+                          </span>
+                        }
                       />
                     ) : (
                       <span className="flex w-full h-full items-center justify-center p-8">
@@ -399,7 +407,13 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
         </p>
       </div>
 
-      <ProductVideoModal product={videoModalProduct} onClose={() => setVideoModalProduct(null)} onInquire={onInquire} />
+      {videoModalProduct && (
+        <DialogBoundary onError={() => setVideoModalProduct(null)}>
+          <Suspense fallback={null}>
+            <ProductVideoModal product={videoModalProduct} onClose={() => setVideoModalProduct(null)} onInquire={onInquire} />
+          </Suspense>
+        </DialogBoundary>
+      )}
     </section>
   );
 };

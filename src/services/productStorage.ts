@@ -1,5 +1,5 @@
 import { Product } from '../types';
-import { initialProducts } from '../data/products';
+import { initialProducts, BUNDLED_IMAGES } from '../data/products';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, onSnapshot, getDocs } from 'firebase/firestore';
 import { sanitizeProductForFirestore } from '../utils/firestoreSanitizer';
@@ -40,9 +40,15 @@ function isLegacyPlaceholderMediaUrl(url: string | undefined | null): boolean {
   );
 }
 
+/** Old hashed URL of a bundled photo → the photo's current URL (other URLs unchanged). */
+function currentBundledUrl(url: string): string {
+  const m = /\/assets\/([a-z_]+?)_\d{10,}[^/]*\.(?:jpe?g|webp)$/.exec(url || '');
+  return (m && BUNDLED_IMAGES[m[1]]) || url;
+}
+
 function cleanProductMediaPlaceholders(product: Product, fallbackProduct?: Product): Product {
   const cleanImages = Array.isArray(product.images)
-    ? product.images.filter(img => img && !isLegacyPlaceholderMediaUrl(img))
+    ? product.images.filter(img => img && !isLegacyPlaceholderMediaUrl(img)).map(currentBundledUrl)
     : [];
 
   const finalImages = cleanImages.length > 0 ? cleanImages : fallbackProduct?.images || [];
@@ -50,7 +56,7 @@ function cleanProductMediaPlaceholders(product: Product, fallbackProduct?: Produ
     product.videoUrl && !isLegacyPlaceholderMediaUrl(product.videoUrl) ? product.videoUrl : undefined;
   const cleanThumb =
     product.videoThumbnail && !isLegacyPlaceholderMediaUrl(product.videoThumbnail)
-      ? product.videoThumbnail
+      ? currentBundledUrl(product.videoThumbnail)
       : finalImages[0] || fallbackProduct?.videoThumbnail;
 
   const result: Product = {

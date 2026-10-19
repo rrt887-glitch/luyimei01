@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   const accountLabel = buyer ? buyer.name || d.account.buyerCenter : d.account.tabLogin;
 
   return (
-    <header className={`sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b transition-shadow duration-300 ${scrolled ? 'border-line shadow-[0_6px_20px_-12px_rgb(15_37_54/0.35)]' : 'border-transparent'}`}>
+    <header className={`sticky top-0 z-40 bg-white md:bg-white/95 md:backdrop-blur-md border-b transition-shadow duration-300 ${scrolled ? 'border-line shadow-[0_6px_20px_-12px_rgb(15_37_54/0.35)]' : 'border-transparent'}`}>
       <div className="page-wrap h-16 flex items-center justify-between gap-6">
         <a
           href="#home"

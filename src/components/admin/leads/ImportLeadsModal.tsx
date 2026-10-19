@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Upload, FileSpreadsheet, Download, Loader2, CheckCircle2, AlertTriangle, CopyX } from 'lucide-react';
-import { Modal } from '../AdminUI';
+import { Modal, ProgressBar } from '../AdminUI';
 import { AdminLead, StaffAccount } from '../../../types/admin';
 import { readSpreadsheet } from '../../../utils/xlsx';
 import { getStage } from '../../../config/leadStages';
@@ -23,6 +23,7 @@ export const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClos
   const [fileName, setFileName] = useState('');
   const [parsed, setParsed] = useState<ParsedRow[] | null>(null);
   const [problem, setProblem] = useState('');
+  const [importError, setImportError] = useState('');
   const [reading, setReading] = useState(false);
   const [includeDuplicates, setIncludeDuplicates] = useState(false);
   const [filter, setFilter] = useState<Filter>('ok');
@@ -37,6 +38,7 @@ export const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClos
     setIncludeDuplicates(false);
     setFilter('ok');
     setProgress(0);
+    setImportError('');
     if (inputRef.current) inputRef.current.value = '';
   };
 
@@ -79,10 +81,13 @@ export const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClos
     if (toImport.length === 0) return;
     setImporting(true);
     setProgress(0);
+    setImportError('');
     try {
       await onImport(toImport, fileName, setProgress);
       reset();
       onClose();
+    } catch (err) {
+      setImportError(`导入中断：${(err as Error).message || '网络异常'}。已经写入的会保留，请关闭后在线索列表里核对，再导入剩余部分。`);
     } finally {
       setImporting(false);
     }
@@ -164,6 +169,22 @@ export const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClos
             <span className="font-semibold text-night">{fileName}</span> 共 {parsed.length} 行
           </p>
           {problem && <p className="rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900">{problem}</p>}
+          {importing && (
+            <div className="rounded-lg border border-line bg-white px-3.5 py-3">
+              <div className="mb-1.5 flex justify-between text-[13px] text-slate-600">
+                <span>正在写入数据库…</span>
+                <span className="font-sign">
+                  {progress} / {toImport.length}
+                </span>
+              </div>
+              <ProgressBar value={(progress / Math.max(1, toImport.length)) * 100} label="导入进度" />
+            </div>
+          )}
+          {importError && (
+            <p role="alert" className="rounded-lg bg-rose-50 px-3.5 py-2.5 text-sm text-rose-800">
+              {importError}
+            </p>
+          )}
 
           <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label="预览筛选">
             {(

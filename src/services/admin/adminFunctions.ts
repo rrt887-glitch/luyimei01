@@ -4,8 +4,7 @@
  * Staff identity operations are server-only: there is deliberately NO client-side fallback,
  * because a fallback would let Firebase Auth, Custom Claims and staff documents drift apart.
  */
-import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase';
+import { getFunctionsService } from '../firebase';
 import { StaffAccount, StaffRole } from '../../types/admin';
 import { TIMEOUTS } from '../../config/appConfig';
 
@@ -56,6 +55,7 @@ function translateError(fnName: string, err: any): AdminFunctionError {
 }
 
 async function callAdminFunction<Req, Res>(fnName: string, payload: Req): Promise<Res> {
+  const [{ httpsCallable }, functions] = await Promise.all([import('firebase/functions'), getFunctionsService()]);
   const callable = httpsCallable<Req, Res>(functions, fnName, { timeout: TIMEOUTS.adminCallable });
   try {
     const result = await callable(payload);

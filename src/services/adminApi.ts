@@ -25,6 +25,7 @@ import { StaffAuthDomainService } from './admin/staffAuthService';
 import { LeadsCrmDomainService } from './admin/leadsCrmService';
 import { CustomerDomainService } from './admin/customerService';
 import { withTimeout } from './admin/adminShared';
+import { ADMIN_SESSION_CLEARED_EVENT } from './adminSession';
 
 export { withTimeout };
 
@@ -50,6 +51,18 @@ class AdminApiService {
     this.leadsService = new LeadsCrmDomainService(this.auditService);
     this.customerService = new CustomerDomainService(this.auditService);
     this.quotationService = new QuotationDomainService();
+
+    // A buyer sign-in on the public site clears the console session without loading this module's
+    // methods; drop whatever console data is still held in memory when that happens.
+    if (typeof window !== 'undefined') {
+      window.addEventListener(ADMIN_SESSION_CLEARED_EVENT, () => {
+        this.staffService.forgetSession();
+        this.leadsService.clearCache();
+        this.customerService.clearCache();
+        this.auditService.clearCache();
+        this.quotationService.clearCache();
+      });
+    }
 
     const cachedProducts = loadReadOnlyCachedProducts();
     this.products = cachedProducts && cachedProducts.length > 0 ? cachedProducts : [...initialProducts];
@@ -293,10 +306,6 @@ class AdminApiService {
     return this.staffService.validateCurrentSession();
   }
 
-  loginStaff(accountInput: string, passwordInput: string) {
-    return this.staffService.loginStaff(accountInput, passwordInput);
-  }
-
   verifyStaffLogin(accountInput: string, passwordInput: string) {
     return this.staffService.loginStaff(accountInput, passwordInput);
   }
@@ -432,10 +441,6 @@ class AdminApiService {
     );
   }
 
-  assignLeadStaff(leadId: string, staffId: string) {
-    return this.assignLead(leadId, staffId);
-  }
-
   addLeadFollowUpNote(leadId: string, content: string, authorName?: string) {
     return this.leadsService.addLeadFollowUpNote(
       leadId,
@@ -449,20 +454,8 @@ class AdminApiService {
     return this.leadsService.deleteLead(leadId, this.staffService.getCurrentStaff());
   }
 
-  batchUpdateStage(leadIds: string[], newStage: LeadStage) {
-    return this.leadsService.batchUpdateStage(
-      leadIds,
-      newStage,
-      this.staffService.getCurrentStaff()
-    );
-  }
-
   batchUpdateLeadStage(leadIds: string[], newStage: LeadStage) {
-    return this.batchUpdateStage(leadIds, newStage);
-  }
-
-  batchUpdateLeadsStage(leadIds: string[], newStage: LeadStage) {
-    return this.batchUpdateStage(leadIds, newStage);
+    return this.leadsService.batchUpdateStage(leadIds, newStage, this.staffService.getCurrentStaff());
   }
 
   importLeads(items: LeadImportItem[], sourceName: string, onProgress?: (done: number) => void) {
@@ -501,30 +494,6 @@ class AdminApiService {
 
   getCustomers(): CustomerProfile[] {
     return this.customerService.getCustomers();
-  }
-
-  registerCustomerFromAccount(account: {
-    id?: string;
-    name: string;
-    email: string;
-    phone: string;
-    company?: string;
-    country?: string;
-    source?: string;
-  }) {
-    return this.customerService.registerCustomerFromAccount(account);
-  }
-
-  registerCustomer(account: {
-    id?: string;
-    name: string;
-    email: string;
-    phone: string;
-    company?: string;
-    country?: string;
-    source?: string;
-  }) {
-    return this.customerService.registerCustomerFromAccount(account);
   }
 
   updateCustomerStatus(customerId: string, status: CustomerProfile['status']) {

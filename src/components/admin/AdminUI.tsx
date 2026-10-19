@@ -162,3 +162,20 @@ export const Avatar: React.FC<{ name?: string; size?: number; tone?: 'sky' | 'ni
     </span>
   );
 };
+
+/** Thin progress bar with an accessible value (0–100). */
+export const ProgressBar: React.FC<{ value: number; label: string; tone?: 'sky' | 'rose'; className?: string }> = ({ value, label, tone = 'sky', className = '' }) => {
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={v}
+      className={`h-1.5 w-full overflow-hidden rounded-full bg-concrete ${className}`}
+    >
+      <div className={`h-full rounded-full transition-[width] duration-300 ${tone === 'rose' ? 'bg-rose-500' : 'bg-sky'}`} style={{ width: `${v}%` }} />
+    </div>
+  );
+};

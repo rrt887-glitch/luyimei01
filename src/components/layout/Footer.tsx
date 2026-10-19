@@ -34,7 +34,7 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
   ].filter(Boolean) as { icon: typeof Phone; label: string; value: string }[];
 
   return (
-    <footer className="bg-night text-white/75 border-t border-white/10">
+    <footer className="cv-auto bg-night text-white/75 border-t border-white/10">
       <div className="page-wrap py-14 md:py-16 grid gap-10 md:grid-cols-2 lg:grid-cols-12">
         <div className="lg:col-span-4">
           <a href="#home" className="inline-flex items-center rounded-md" aria-label={d.nav.brandName}>

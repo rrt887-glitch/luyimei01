@@ -1,6 +1,8 @@
 import React from 'react';
 import { useI18n } from '../../i18n';
-import heroImage from '../../assets/images/hero_road_sealing_1791786356470.jpg';
+import heroImage from '../../assets/images/hero_road_sealing_1791786356470.webp';
+import heroImageSmall from '../../assets/images/hero_road_sealing_1791786356470-sm.webp';
+import heroImagePortrait from '../../assets/images/hero_road_sealing_1791786356470-portrait.webp';
 import { CountUp } from '../common/Motion';
 
 /**
@@ -24,14 +26,23 @@ export const HeroSection: React.FC = () => {
   return (
     <section id="home" className="bg-white">
       <div className="relative min-h-[600px] h-[86svh] max-h-[780px] overflow-hidden bg-night">
-        <img
-          src={heroImage}
-          alt="施工人员在高速公路上使用灌缝设备处理路面裂缝"
-          className="hero-photo absolute inset-0 w-full h-full object-cover object-[62%_center]"
-          loading="eager"
-          fetchPriority="high"
-          referrerPolicy="no-referrer"
-        />
+        {/* Phones get a portrait crop of the photo (a third of the bytes, nothing visible is lost). */}
+        <picture>
+          <source media="(max-width: 640px)" srcSet={heroImagePortrait} width={480} height={768} />
+          <img
+            src={heroImage}
+            srcSet={`${heroImageSmall} 800w, ${heroImage} 1376w`}
+            sizes="100vw"
+            width={1376}
+            height={768}
+            decoding="async"
+            alt="施工人员在高速公路上使用灌缝设备处理路面裂缝"
+            className="hero-photo absolute inset-0 w-full h-full object-cover object-center sm:object-[62%_center]"
+            loading="eager"
+            fetchPriority="high"
+            referrerPolicy="no-referrer"
+          />
+        </picture>
         <div
           className="absolute inset-0 bg-[linear-gradient(0deg,rgb(15_37_54/0.92)_0%,rgb(15_37_54/0.55)_55%,rgb(15_37_54/0.2)_100%)] md:bg-[linear-gradient(90deg,rgb(15_37_54/0.9)_0%,rgb(15_37_54/0.62)_42%,rgb(15_37_54/0)_78%)] rtl:md:bg-[linear-gradient(270deg,rgb(15_37_54/0.9)_0%,rgb(15_37_54/0.62)_42%,rgb(15_37_54/0)_78%)]"
           aria-hidden="true"

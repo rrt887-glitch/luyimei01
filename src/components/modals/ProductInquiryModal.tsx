@@ -127,7 +127,7 @@ export const ProductInquiryModal: React.FC<ProductInquiryModalProps> = ({ produc
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="quote-dialog-title" className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-4">
-      <div className="absolute inset-0 bg-night/60 backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-night/60 sm:backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
       <div className="relative w-full sm:max-w-lg max-h-[94vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl">
         <button onClick={onClose} aria-label={d.dialog.close} className="icon-btn absolute top-4 end-4 z-10">
           <X className="w-5 h-5" />

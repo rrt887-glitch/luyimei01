@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useDialog } from '../../hooks/useDialog';
 import { useI18n } from '../../i18n';
 import { api, SignupError } from '../../services/api';
-import { adminApi } from '../../services/adminApi';
+import { looksLikeStaffAccount } from '../../services/adminSession';
 import { UserAccount, InquiryRecord } from '../../types';
 import { StaffAccount } from '../../types/admin';
 import { X, Loader2, Eye, EyeOff, LogOut, Lock, Clock, RefreshCw, Globe, MessageCircle, Mail } from 'lucide-react';
@@ -154,7 +154,9 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     setBusy(true);
     try {
       // Staff sign in with their phone number and go straight to the console.
-      if (adminApi.isStaffIdentifier(id)) {
+      if (looksLikeStaffAccount(id)) {
+        // The console code is only downloaded when a staff member actually signs in.
+        const { adminApi } = await import('../../services/adminApi');
         const staffResult = await adminApi.verifyStaffLogin(id, pass);
         if (staffResult.success && staffResult.staff) {
           api.logout();
@@ -290,7 +292,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
       aria-labelledby="account-dialog-title"
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
     >
-      <div className="absolute inset-0 bg-night/60 backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-night/60 sm:backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
       <div className="relative w-full sm:max-w-[30rem] max-h-[94vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl">
         <button onClick={onClose} aria-label={d.dialog.close} className="icon-btn absolute top-4 end-4 z-10">
           <X className="w-5 h-5" />

@@ -11,11 +11,8 @@ import { zh } from '../../i18n/locales/zh';
 /** Built-in catalogue text for a translation key such as 'p1Spec' (undefined for free text). */
 const builtinText = (key?: string): string | undefined =>
   key ? (zh.productsData as Record<string, string>)[key] : undefined;
-import {
-  uploadProductImageToStorage,
-  uploadProductVideoToStorage,
-  deleteUploadedMedia
-} from '../../services/mediaStorage';
+import { deleteUploadedMedia } from '../../services/mediaStorage';
+import { useMediaUploads } from './products/useMediaUploads';
 import { ProductFilterToolbar } from './products/ProductFilterToolbar';
 import { ProductTable } from './products/ProductTable';
 import { ProductFormModal, ProductFormState } from './products/ProductFormModal';
@@ -111,83 +108,37 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
 
   const formMediaUrls = () => [...form.images, form.videoUrl, form.videoThumbnail];
   const [newImageUrlInput, setNewImageUrlInput] = useState('');
-  const [isCompressingImages, setIsCompressingImages] = useState(false);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const uploads = useMediaUploads(
+    mediaTargetId,
+    url => {
+      sessionUploadsRef.current.push(url);
+      setForm(prev => {
+        const images = [...prev.images, url].slice(0, 20);
+        return { ...prev, images, videoThumbnail: prev.videoThumbnail || images[0] || '' };
+      });
+    },
+    url => {
+      sessionUploadsRef.current.push(url);
+      setForm(prev => ({ ...prev, videoUrl: url }));
+      onShowToast('视频已上传');
+    }
+  );
 
   const handleChangeForm = (updates: Partial<ProductFormState>) => {
     setForm(prev => ({ ...prev, ...updates }));
   };
 
-  const handlePhotoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    setIsCompressingImages(true);
-    const targetProdId = mediaTargetId;
-    onShowToast(`正在上传 ${files.length} 张照片…`);
-
-    try {
-      const fileList = Array.from(files);
-      const uploadedUrls: string[] = [];
-
-      for (const file of fileList) {
-        const url = await uploadProductImageToStorage(targetProdId, file);
-        uploadedUrls.push(url);
-        sessionUploadsRef.current.push(url);
-      }
-
-      if (uploadedUrls.length > 0) {
-        setForm(prev => {
-          const nextImages = [...prev.images, ...uploadedUrls].slice(0, 20);
-          return {
-            ...prev,
-            images: nextImages,
-            videoThumbnail: prev.videoThumbnail || nextImages[0] || ''
-          };
-        });
-        onShowToast(`已上传 ${uploadedUrls.length} 张照片`);
-      }
-    } catch (err) {
-      console.error('Photo upload failed:', err);
-      onShowToast((err as Error).message || '照片上传失败，请检查网络连接后重试');
-    } finally {
-      setIsCompressingImages(false);
-      e.target.value = '';
+  /** Saving is blocked while files are still uploading or a failed upload has not been dealt with. */
+  const uploadsBlockSave = (): boolean => {
+    if (uploads.busy) {
+      onShowToast('还有文件正在上传，请等上传完成后再保存');
+      return true;
     }
-  };
-
-  const handleVideoFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const targetProdId = mediaTargetId;
-    setIsUploadingVideo(true);
-    setVideoUploadProgress(0);
-    onShowToast('正在上传视频…');
-
-    try {
-      const { videoUrl, thumbnailUrl } = await uploadProductVideoToStorage(
-        targetProdId,
-        file,
-        form.videoThumbnail || form.images[0],
-        pct => setVideoUploadProgress(pct)
-      );
-      sessionUploadsRef.current.push(videoUrl);
-      setForm(prev => ({
-        ...prev,
-        videoUrl,
-        videoThumbnail: thumbnailUrl || prev.videoThumbnail
-      }));
-      onShowToast('视频已上传');
-    } catch (err) {
-      console.error('Video upload failed:', err);
-      onShowToast((err as Error).message || '视频上传失败，请使用外部 HTTPS MP4 视频直链');
-    } finally {
-      setIsUploadingVideo(false);
-      setVideoUploadProgress(0);
-      e.target.value = '';
+    if (uploads.failed > 0) {
+      onShowToast(`有 ${uploads.failed} 个文件上传失败：请点「重试」或移除后再保存`);
+      return true;
     }
+    return false;
   };
 
   const handleAddImageUrl = () => {
@@ -293,6 +244,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
 
   const handleSaveAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploadsBlockSave()) return;
     if (form.videoUrl.startsWith('data:video/')) {
       onShowToast('视频请用上传按钮或填写 https 链接，不能直接粘贴文件内容');
       return;
@@ -371,6 +323,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingProduct) return;
+    if (uploadsBlockSave()) return;
     if (form.videoUrl.startsWith('data:video/')) {
       onShowToast('视频请用上传按钮或填写 https 链接，不能直接粘贴文件内容');
       return;
@@ -551,14 +504,11 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         onAddImageUrl={handleAddImageUrl}
         onRemoveImage={handleRemoveImage}
         onSetPrimaryImage={handleSetPrimaryImage}
-        isCompressingImages={isCompressingImages}
-        onPhotoFileUpload={handlePhotoFileUpload}
-        isUploadingVideo={isUploadingVideo}
-        videoUploadProgress={videoUploadProgress}
-        onVideoFileUpload={handleVideoFileUpload}
+        uploads={uploads}
         onSubmit={editingProduct ? handleSaveEdit : handleSaveAdd}
         onClose={() => {
-          // Cancelled: nothing uploaded in this session is referenced by a saved product.
+          // Cancelled: stop uploads; nothing uploaded in this session is referenced by a saved product.
+          uploads.reset();
           cleanupSessionUploads([]);
           setDraftProductId('');
           setIsAddModalOpen(false);

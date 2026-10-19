@@ -27,7 +27,7 @@ export const ServicesSection: React.FC<ServicesSectionProps> = ({ onSelectCatego
   ];
 
   return (
-    <section id="process" className="py-16 md:py-24 bg-white">
+    <section id="process" className="cv-auto py-16 md:py-24 bg-white">
       <div className="page-wrap">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-10 md:mb-14">
           <h2 className="section-title max-w-[18em]">{s.title}</h2>

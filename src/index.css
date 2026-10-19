@@ -550,7 +550,14 @@
 .hero-rise {
   opacity: 0;
   animation: lym-rise 800ms var(--ease-out-quart) forwards;
-  animation-delay: calc(700ms + var(--i, 0) * 120ms);
+  animation-delay: calc(300ms + var(--i, 0) * 90ms);
+}
+
+/* Sections below the first screen: the browser skips their layout and paint until they come near
+   the viewport, which makes the first render and scrolling cheaper on phones. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
 }
 
 /* One-time reveal on first scroll into view (Reveal component). */
@@ -694,5 +701,25 @@
 
   #quotation-sheet-paper * {
     visibility: visible !important;
+  }
+}
+
+/* Placeholder shimmer behind photos that are still downloading (SmartImage). */
+.img-loading {
+  background: linear-gradient(100deg, var(--color-concrete) 30%, #e9eef2 50%, var(--color-concrete) 70%);
+  background-size: 300% 100%;
+  animation: lym-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes lym-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .img-loading {
+    animation: none;
   }
 }

@@ -27,6 +27,27 @@
       content="广州路易美工程设备有限公司官方网站，专业道路养护材料、施工成套机具与工程技术服务。提供沥青贴缝带、灌缝胶、灌缝机与路面修复方案。"
     />
     <meta name="theme-color" content="#0f2536" />
+    <!-- Open the connections the page needs before the script asks for them. -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
+    <!-- The hero photo is the largest thing on the first screen: start downloading it right away. -->
+    <link
+      rel="preload"
+      as="image"
+      href="/src/assets/images/hero_road_sealing_1791786356470-portrait.webp"
+      media="(max-width: 640px)"
+      fetchpriority="high"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="/src/assets/images/hero_road_sealing_1791786356470.webp"
+      imagesrcset="/src/assets/images/hero_road_sealing_1791786356470-sm.webp 800w, /src/assets/images/hero_road_sealing_1791786356470.webp 1376w"
+      imagesizes="100vw"
+      media="(min-width: 641px)"
+      fetchpriority="high"
+    />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Replace with the absolute URL (https://your-domain/og-image.jpg) once the domain is final. -->

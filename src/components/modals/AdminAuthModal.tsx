@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useDialog } from '../../hooks/useDialog';
-import { adminApi } from '../../services/adminApi';
 import { StaffAccount } from '../../types/admin';
 import { X, Loader2, ShieldCheck, Phone, KeyRound } from 'lucide-react';
 import { BrandMark } from '../common/BrandMark';
@@ -46,6 +45,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
     }, 10000);
 
     try {
+      const { adminApi } = await import('../../services/adminApi');
       const result = await adminApi.verifyStaffLogin(account, pass);
       clearTimeout(safetyTimer);
       if (result.success && result.staff) {
@@ -71,7 +71,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="admin-dialog-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-night/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-night/60 sm:backdrop-blur-sm"
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
       }}

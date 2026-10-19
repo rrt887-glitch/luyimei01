@@ -9,35 +9,14 @@ import {
   normalizePhoneDigits,
   phoneToStaffAuthEmail
 } from './adminShared';
-import { isReservedStaffEmail } from '../../config/appConfig';
 import { adminFunctions } from './adminFunctions';
 import { AuditLogDomainService } from './auditLogService';
+import { purgeAdminStorage, readAdminSession, sanitizeStaffProfile, writeAdminSession, looksLikeStaffAccount } from '../adminSession';
 
-const STORAGE_KEYS = {
-  STAFF: 'lym_staff_readonly_v4',
-  ADMIN_SESSION: 'lym_admin_session_v4'
-};
-
+const STAFF_CACHE_KEY = 'lym_staff_readonly_v4';
 const LEGACY_STORAGE_KEYS = ['lym_staff_data', 'lym_staff_directory_sanitized_v2', 'lym_admin_session'];
 
-export function sanitizeStaffProfile(raw: Record<string, any>, fallbackUid?: string): StaffAccount {
-  const uid = String(raw.uid || raw.id || fallbackUid || '').trim();
-  const role: StaffRole = raw.role === 'super_admin' ? 'super_admin' : 'sales_rep';
-  const status: 'active' | 'suspended' = raw.status === 'suspended' ? 'suspended' : 'active';
-  const lastLogin = String(raw.lastLogin || raw.lastLoginAt || '尚未登录');
-  const defaultName = role === 'super_admin' ? '系统超级管理员' : '未命名员工';
-  return {
-    id: uid,
-    uid,
-    name: String(raw.name || defaultName).trim() || defaultName,
-    email: String(raw.email || '').trim(),
-    phone: normalizePhoneDigits(String(raw.phone || '')),
-    role,
-    status,
-    assignedLeadsCount: typeof raw.assignedLeadsCount === 'number' ? raw.assignedLeadsCount : 0,
-    lastLoginAt: lastLogin
-  };
-}
+export { sanitizeStaffProfile };
 
 type LoginResult = { success: boolean; staff?: StaffAccount; message: string };
 
@@ -70,7 +49,7 @@ export class StaffAuthDomainService {
 
     if (this.currentStaff) {
       try {
-        const savedStaff = localStorage.getItem(STORAGE_KEYS.STAFF);
+        const savedStaff = localStorage.getItem(STAFF_CACHE_KEY);
         const parsed = savedStaff ? JSON.parse(savedStaff) : null;
         if (Array.isArray(parsed)) {
           this.staffList = parsed
@@ -90,7 +69,7 @@ export class StaffAuthDomainService {
   private saveReadOnlyStaffCache() {
     try {
       if (this.currentStaff) {
-        localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(this.staffList));
+        localStorage.setItem(STAFF_CACHE_KEY, JSON.stringify(this.staffList));
       }
     } catch {
       // Ignore
@@ -113,44 +92,26 @@ export class StaffAuthDomainService {
   }
 
   getAdminSession(): StaffAccount | null {
-    try {
-      const raw = sessionStorage.getItem(STORAGE_KEYS.ADMIN_SESSION);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as StaffAccount;
-      if (!parsed || !parsed.id || !parsed.uid) {
-        sessionStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
-        return null;
-      }
-      return sanitizeStaffProfile(parsed);
-    } catch {
-      return null;
-    }
+    return readAdminSession();
   }
 
   setAdminSession(staff: StaffAccount): void {
-    try {
-      const sanitized = sanitizeStaffProfile(staff);
-      this.currentStaff = sanitized;
-      sessionStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, JSON.stringify(sanitized));
-    } catch {
-      // Ignore
-    }
+    this.currentStaff = writeAdminSession(staff);
+  }
+
+  /** Drops in-memory session data (the browser storage was already cleared). */
+  forgetSession(): void {
+    this.currentStaff = null;
+    this.staffList = [];
   }
 
   /**
-   * Clear admin session AND purge cached staff directory, then (by default) sign out of Firebase Auth.
+   * Clear admin session AND purge cached console data, then (by default) sign out of Firebase Auth.
    * Pass `signOutAuth = false` when another sign-in (e.g. a buyer login) is about to replace the user.
    */
   clearAdminSession(signOutAuth = true): void {
-    this.currentStaff = null;
-    this.staffList = [];
-    try {
-      sessionStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
-      localStorage.removeItem(STORAGE_KEYS.STAFF);
-      LEGACY_STORAGE_KEYS.forEach(key => localStorage.removeItem(key));
-    } catch {
-      // Ignore
-    }
+    this.forgetSession();
+    purgeAdminStorage();
     if (signOutAuth) {
       signOut(auth).catch(() => {});
     }
@@ -216,16 +177,9 @@ export class StaffAuthDomainService {
   }
 
   isStaffIdentifier(input: string): boolean {
+    if (looksLikeStaffAccount(input)) return true;
     const trimmed = (input || '').trim().toLowerCase();
-    if (!trimmed) return false;
-    if (isReservedStaffEmail(trimmed)) return true;
-    const digits = normalizePhoneDigits(trimmed);
-    if (!trimmed.includes('@') && digits.length >= 6) return true;
-    return this.staffList.some(
-      s =>
-        (s.email && s.email.toLowerCase() === trimmed) ||
-        (digits.length >= 6 && s.phone && normalizePhoneDigits(s.phone) === digits)
-    );
+    return this.staffList.some(s => s.email && s.email.toLowerCase() === trimmed);
   }
 
   // ---------------------------------------------------------------------------

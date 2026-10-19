@@ -271,7 +271,6 @@ export function sanitizeStaffForFirestore(staff: Record<string, any>): Record<st
   return pickAllowedFields(staff, STAFF_ALLOWED_KEYS);
 }
 
-export const sanitizeStaffDocForFirestore = sanitizeStaffForFirestore;
 
 export function sanitizeAuditLogForFirestore(log: Record<string, any>): Record<string, any> {
   return pickAllowedFields(log, AUDIT_LOG_ALLOWED_KEYS);

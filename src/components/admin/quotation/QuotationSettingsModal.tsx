@@ -60,6 +60,7 @@ export const QuotationSettingsModal: React.FC<Props> = ({ open, onClose, config,
   const [form, setForm] = useState<QuotationConfig>(config);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [stampBusy, setStampBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -79,10 +80,18 @@ export const QuotationSettingsModal: React.FC<Props> = ({ open, onClose, config,
   const onStamp = async (file?: File) => {
     if (!file) return;
     setError('');
+    if (!file.type.startsWith('image/')) {
+      setError('请选择 PNG、JPG 或 WebP 图片');
+      return;
+    }
+    setStampBusy(true);
     try {
       set('stampImage', await stampFromFile(file));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setStampBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -147,7 +156,7 @@ export const QuotationSettingsModal: React.FC<Props> = ({ open, onClose, config,
             {canEdit ? '取消' : '关闭'}
           </button>
           {canEdit && (
-            <button type="button" onClick={save} disabled={saving} className="btn btn-sm btn-primary">
+            <button type="button" onClick={save} disabled={saving || stampBusy} className="btn btn-sm btn-primary">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
               {saving ? '保存中…' : '保存'}
             </button>
@@ -176,9 +185,9 @@ export const QuotationSettingsModal: React.FC<Props> = ({ open, onClose, config,
         {canEdit && (
           <div className="flex flex-col gap-2">
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => onStamp(e.target.files?.[0])} />
-            <button type="button" onClick={() => fileRef.current?.click()} className="btn btn-sm btn-outline">
-              <Upload className="w-4 h-4" />
-              上传图片
+            <button type="button" onClick={() => fileRef.current?.click()} disabled={stampBusy} className="btn btn-sm btn-outline">
+              {stampBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {stampBusy ? '正在处理…' : '上传图片'}
             </button>
             {form.stampImage && (
               <button type="button" onClick={() => set('stampImage', '')} className="btn btn-sm btn-ghost text-rose-700">

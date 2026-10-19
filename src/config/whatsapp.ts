@@ -219,16 +219,6 @@ export function hasConfiguredWhatsApp(): boolean {
   return Boolean(wa && !isPlaceholderPhoneNumber(wa));
 }
 
-export const WHATSAPP_CONFIG = {
-  get phoneNumber(): string {
-    return getSiteContactConfig().whatsappNumber;
-  },
-  get displayNumber(): string {
-    const cfg = getSiteContactConfig();
-    return cfg.whatsappDisplay || (cfg.whatsappNumber ? `+${cfg.whatsappNumber}` : '未配置 (请使用在线工程询盘)');
-  }
-};
-
 /**
  * Generate a direct WhatsApp click-to-chat URL with prefilled product inquiry text.
  * SAFETY GUARD: If no real WhatsApp number is configured, NEVER send the user to a stranger's phone number;

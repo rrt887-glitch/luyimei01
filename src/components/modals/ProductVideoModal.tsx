@@ -113,7 +113,7 @@ export const ProductVideoModal: React.FC<ProductVideoModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 sm:backdrop-blur-md animate-in fade-in duration-200"
       onClick={e => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -123,7 +123,7 @@ export const ProductVideoModal: React.FC<ProductVideoModalProps> = ({
         className="relative w-full max-w-4xl bg-[#0c1015] rounded-2xl shadow-2xl overflow-hidden border border-white/10 flex flex-col"
       >
         {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/40 backdrop-blur-sm z-10">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/40 sm:backdrop-blur-sm z-10">
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full bg-sky animate-pulse shrink-0" />
             <div className="min-w-0">
@@ -163,7 +163,7 @@ export const ProductVideoModal: React.FC<ProductVideoModalProps> = ({
           />
 
           {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-xs">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 sm:backdrop-blur-xs">
               <div className="w-10 h-10 border-2 border-sky border-t-transparent rounded-full animate-spin" />
             </div>
           )}

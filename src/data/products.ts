@@ -1,10 +1,24 @@
 import { Product } from '../types';
-import coldPatchImg from '../assets/images/cold_patch_asphalt_1792119559597.jpg';
-import crackTapeImg from '../assets/images/asphalt_crack_tape_1792119561136.jpg';
-import slottingMachineImg from '../assets/images/road_slotting_machine_1792119563470.jpg';
-import crackSealerImg from '../assets/images/road_crack_sealer_1792119564714.jpg';
-import heroRoadImg from '../assets/images/hero_road_sealing_1791786356470.jpg';
-import labTestingImg from '../assets/images/materials_lab_testing_1791786380385.jpg';
+import coldPatchImg from '../assets/images/cold_patch_asphalt_1792119559597.webp';
+import crackTapeImg from '../assets/images/asphalt_crack_tape_1792119561136.webp';
+import slottingMachineImg from '../assets/images/road_slotting_machine_1792119563470.webp';
+import crackSealerImg from '../assets/images/road_crack_sealer_1792119564714.webp';
+import heroRoadImg from '../assets/images/hero_road_sealing_1791786356470.webp';
+import labTestingImg from '../assets/images/materials_lab_testing_1791786380385.webp';
+
+/**
+ * Bundled photos by name. Products saved from the console before v15 may still point at the old
+ * hashed .jpg files (e.g. /assets/cold_patch_asphalt_1792119559597-Ab12Cd.jpg), which no longer
+ * exist; productStorage maps those URLs to the current files.
+ */
+export const BUNDLED_IMAGES: Record<string, string> = {
+  cold_patch_asphalt: coldPatchImg,
+  asphalt_crack_tape: crackTapeImg,
+  road_slotting_machine: slottingMachineImg,
+  road_crack_sealer: crackSealerImg,
+  hero_road_sealing: heroRoadImg,
+  materials_lab_testing: labTestingImg
+};
 
 export const initialProducts: Product[] = [
   {

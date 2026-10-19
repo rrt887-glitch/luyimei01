@@ -1,13 +1,10 @@
 import {
-  Product,
   InquiryFormData,
   InquiryRecord,
   SubmitInquiryResult,
   UserAccount
 } from '../types';
-import { initialProducts } from '../data/products';
-import { initPersistentProducts } from './productStorage';
-import { db, auth, functions } from './firebase';
+import { db, auth, getFunctionsService, functionUrl } from './firebase';
 import {
   collection,
   doc,
@@ -24,8 +21,8 @@ import {
   signInWithEmailAndPassword,
   signOut
 } from 'firebase/auth';
-import { httpsCallable } from 'firebase/functions';
-import { adminApi, withTimeout } from './adminApi';
+import { withTimeout } from './admin/adminShared';
+import { hasAdminSession, purgeAdminStorage } from './adminSession';
 import { validatePasswordStrength } from '../utils/crypto';
 import { isReservedStaffEmail, TIMEOUTS } from '../config/appConfig';
 import {
@@ -66,7 +63,7 @@ export class SignupError extends Error {
 
 /** True when the function's host answers at all (any status), i.e. the visitor's network can reach it. */
 async function canReachFunction(name: string): Promise<boolean> {
-  const url = `https://${functions.region}-${functions.app.options.projectId}.cloudfunctions.net/${name}`;
+  const url = functionUrl(name);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
@@ -80,7 +77,13 @@ async function canReachFunction(name: string): Promise<boolean> {
 }
 
 async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req, timeout: number = TIMEOUTS.adminCallable): Promise<Res> {
-  const callable = httpsCallable<Req, Res>(functions, name, { timeout });
+  let callable;
+  try {
+    const [{ httpsCallable }, functions] = await Promise.all([import('firebase/functions'), getFunctionsService()]);
+    callable = httpsCallable<Req, Res>(functions, name, { timeout });
+  } catch (err) {
+    throw new SignupError('network', (err as Error)?.message);
+  }
   try {
     return (await callable(payload)).data;
   } catch (err: any) {
@@ -344,25 +347,6 @@ class ApiService {
     }
   }
 
-  // Retrieve products list with cloud-first persistence guarantee
-  async getProducts(): Promise<Product[]> {
-    try {
-      const persisted = await initPersistentProducts(initialProducts);
-      if (persisted && persisted.length > 0) {
-        return persisted;
-      }
-    } catch {
-      // fallback
-    }
-    return [...initialProducts];
-  }
-
-  // Get product by ID
-  async getProductById(id: string): Promise<Product | undefined> {
-    const products = await this.getProducts();
-    return products.find(p => p.id === id);
-  }
-
   /**
    * Real-time subscription to cloud favorites collection.
    * Strictly isolated by `request.auth.uid` via Firestore `where('userId', '==', uid)` query.
@@ -585,7 +569,7 @@ class ApiService {
     } catch (e) {
       console.warn('Failed to remove user session:', e);
     }
-    if (!adminApi.isAdminLoggedIn()) {
+    if (!hasAdminSession()) {
       void signOut(auth).catch(() => {});
     }
     this.loadLocalFavorites();
@@ -609,8 +593,8 @@ class ApiService {
     }
 
     // One browser = one Firebase Auth user: a buyer login replaces any staff console session.
-    if (adminApi.isAdminLoggedIn()) {
-      adminApi.clearAdminSession(false);
+    if (hasAdminSession()) {
+      purgeAdminStorage();
     }
 
     let uid: string;
@@ -749,8 +733,8 @@ class ApiService {
     if (isReservedStaffEmail(cleanEmail)) {
       throw new SignupError('reserved_email');
     }
-    if (adminApi.isAdminLoggedIn()) {
-      adminApi.clearAdminSession(false);
+    if (hasAdminSession()) {
+      purgeAdminStorage();
     }
     await callSignupFunction('registerBuyer', {
       name: data.name.trim(),

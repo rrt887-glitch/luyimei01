@@ -37,7 +37,7 @@ export const RecordsTable: React.FC<RecordsTableProps> = ({ products, onOpenDeta
   const hiddenCount = matching.length - COLLAPSED_ROWS;
 
   return (
-    <section id="cases" className="py-16 md:py-24 bg-white">
+    <section id="cases" className="cv-auto py-16 md:py-24 bg-white">
       <div className="page-wrap">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between mb-8">
           <div>

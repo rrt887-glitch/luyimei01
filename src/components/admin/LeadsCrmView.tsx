@@ -100,7 +100,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
 
   const handleAssignStaff = async (leadId: string, staffId: string) => {
     try {
-      await adminApi.assignLeadStaff(leadId, staffId);
+      await adminApi.assignLead(leadId, staffId);
       onRefreshLeads();
       onShowToast(staffId ? '负责人已更新' : '已退回公海');
     } catch (err) {

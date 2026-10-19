@@ -1,3 +1,4 @@
+import { SmartImage } from '../common/SmartImage';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useI18n } from '../../i18n';
 import { Product } from '../../types';
@@ -84,13 +85,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="product-dialog-title" className="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center sm:p-6">
-      <div className="absolute inset-0 bg-night/70 backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-night/70 sm:backdrop-blur-sm animate-in" onClick={onClose} aria-hidden="true" />
 
       <div className="relative w-full sm:max-w-5xl h-full sm:h-auto sm:max-h-[90vh] bg-white sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <button
           onClick={onClose}
           aria-label={d.dialog.close}
-          className="absolute top-3 end-3 z-20 w-10 h-10 inline-flex items-center justify-center rounded-full bg-white/90 text-night shadow-sm hover:bg-white backdrop-blur"
+          className="absolute top-3 end-3 z-20 w-10 h-10 inline-flex items-center justify-center rounded-full bg-white/90 text-night shadow-sm hover:bg-white sm:backdrop-blur"
         >
           <X className="w-5 h-5" />
         </button>
@@ -104,12 +105,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                   <ProductIllustration id={product.id} className="max-h-full w-auto" />
                 </span>
               ) : current.kind === 'image' ? (
-                <img
+                <SmartImage
                   key={current.src}
                   src={current.src}
                   alt={`${t.name} – ${d.dialog.photoN.replace('{n}', String(index + 1))}`}
                   referrerPolicy="no-referrer"
-                  className="animate-in absolute inset-0 w-full h-full object-cover"
+                  className="w-full h-full object-cover"
                 />
               ) : (
                 <video
@@ -222,7 +223,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
             </div>
 
             {/* Action bar, always visible */}
-            <div className="sticky bottom-0 lg:static shrink-0 border-t border-line bg-white/95 backdrop-blur px-5 py-3 sm:px-7 grid gap-2.5 sm:grid-flow-col sm:auto-cols-fr">
+            <div className="sticky bottom-0 lg:static shrink-0 border-t border-line bg-white/95 sm:backdrop-blur px-5 py-3 sm:px-7 grid gap-2.5 sm:grid-flow-col sm:auto-cols-fr">
               {waConfigured ? (
                 <>
                   <button type="button" onClick={quote} className="btn btn-outline">

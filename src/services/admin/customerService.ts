@@ -178,47 +178,6 @@ export class CustomerDomainService {
     return deduplicateCustomersById(this.customers);
   }
 
-  /**
-   * Bound single-record registration for a newly registered buyer (`CUST-{uid}` with 0 orders/0 quotation).
-   */
-  async registerCustomerFromAccount(account: {
-    id?: string;
-    name: string;
-    email: string;
-    phone: string;
-    company?: string;
-    country?: string;
-    source?: string;
-  }): Promise<void> {
-    const uid = auth.currentUser?.uid || account.id;
-    if (!uid) return;
-
-    const boundCustomerId = `CUST-${uid}`;
-    if (this.customers.some(c => c.id === boundCustomerId)) {
-      return;
-    }
-
-    const nowDate = new Date().toISOString().slice(0, 10);
-    const newCust: CustomerProfile = {
-      id: boundCustomerId,
-      name: account.name.trim(),
-      company: (account.company || `${account.name.trim()} 采购部`).trim(),
-      email: account.email.trim(),
-      phone: account.phone.trim(),
-      country: (account.country || 'Global').trim(),
-      status: 'active',
-      source: account.source || '官网买家注册',
-      inquiryCount: 0,
-      totalQuotationUsd: 0,
-      registeredAt: nowDate,
-      lastActiveAt: nowDate,
-      savedProductIds: []
-    };
-    this.customers.unshift(newCust);
-    await this.persistCustomerToFirestore(newCust).catch(() => {});
-    this.saveReadOnlyCustomersCache();
-  }
-
   async updateCustomerStatus(
     customerId: string,
     status: CustomerProfile['status'],

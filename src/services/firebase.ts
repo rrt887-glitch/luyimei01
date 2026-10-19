@@ -1,8 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import { getFunctions } from 'firebase/functions';
+import type { FirebaseStorage } from 'firebase/storage';
+import type { Functions } from 'firebase/functions';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { FIRESTORE_DATABASE_ID, FUNCTIONS_REGION } from '../config/appConfig';
@@ -35,5 +35,20 @@ if (typeof window !== 'undefined' && recaptchaSiteKey) {
 // CRITICAL: the app uses a *named* Firestore database, never `(default)`.
 export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const auth = getAuth(app);
-export const storage = getStorage(app);
-export const functions = getFunctions(app, FUNCTIONS_REGION);
+
+// Storage (product media, console only) and Cloud Functions (sign-up, staff management) are loaded
+// on first use, so visitors browsing the catalogue never download their SDKs.
+let storagePromise: Promise<FirebaseStorage> | null = null;
+export function getStorageService(): Promise<FirebaseStorage> {
+  storagePromise ||= import('firebase/storage').then(m => m.getStorage(app));
+  return storagePromise;
+}
+
+let functionsPromise: Promise<Functions> | null = null;
+export function getFunctionsService(): Promise<Functions> {
+  functionsPromise ||= import('firebase/functions').then(m => m.getFunctions(app, FUNCTIONS_REGION));
+  return functionsPromise;
+}
+
+/** Address of an HTTPS function, without loading the Functions SDK. */
+export const functionUrl = (name: string) => `https://${FUNCTIONS_REGION}-${app.options.projectId}.cloudfunctions.net/${name}`;

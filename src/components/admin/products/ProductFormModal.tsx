@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Product, ProductTextFields, ProductTranslations } from '../../../types';
-import { Upload, Loader2, Film, X, Star, Settings2 } from 'lucide-react';
-import { Modal, FormField } from '../AdminUI';
+import { Upload, Loader2, Film, X, Star, Settings2, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Modal, FormField, ProgressBar } from '../AdminUI';
+import { MediaUploads, formatMb } from './useMediaUploads';
+import { SmartImage } from '../../common/SmartImage';
 import { ProductCategoryDef } from '../../../config/categories';
 
 export interface ProductFormState {
@@ -41,11 +43,7 @@ interface ProductFormModalProps {
   onAddImageUrl: () => void;
   onRemoveImage: (index: number) => void;
   onSetPrimaryImage: (index: number) => void;
-  isCompressingImages: boolean;
-  onPhotoFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  isUploadingVideo: boolean;
-  videoUploadProgress: number;
-  onVideoFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  uploads: MediaUploads;
   onSubmit: (e: React.FormEvent) => void;
   onClose: () => void;
 }
@@ -63,15 +61,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   onAddImageUrl,
   onRemoveImage,
   onSetPrimaryImage,
-  isCompressingImages,
-  onPhotoFileUpload,
-  isUploadingVideo,
-  videoUploadProgress,
-  onVideoFileUpload,
+  uploads,
   onSubmit,
   onClose
 }) => {
-  const busy = isCompressingImages || isUploadingVideo;
+  const busy = uploads.busy;
+  const { photos, video } = uploads;
+  const uploadingCount = photos.filter(p => p.status !== 'error').length + (video?.status === 'uploading' ? 1 : 0);
 
   return (
     <Modal
@@ -86,7 +82,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             取消
           </button>
           <button type="submit" form="product-form" disabled={busy} className="btn btn-sm btn-primary">
-            {busy ? '等待上传完成…' : '保存'}
+            {busy ? `等待 ${uploadingCount} 个文件上传…` : '保存'}
           </button>
         </>
       }
@@ -183,7 +179,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
             {form.images.map((img, idx) => (
               <div key={idx} className="group/img relative aspect-square overflow-hidden rounded-lg bg-concrete">
-                <img src={img} alt={`照片 ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                <SmartImage src={img} alt={`照片 ${idx + 1}`} referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                 {idx === 0 && (
                   <span className="absolute top-1.5 start-1.5 rounded bg-sky px-1.5 py-0.5 text-[11px] font-semibold text-night">主图</span>
                 )}
@@ -213,14 +209,53 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
               </div>
             ))}
-            <label
-              className={`aspect-square flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-line text-[13px] text-slate-500 cursor-pointer hover:border-sky hover:text-sky-deep transition-colors ${
-                isCompressingImages ? 'pointer-events-none opacity-70' : ''
-              }`}
-            >
-              {isCompressingImages ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
-              {isCompressingImages ? '上传中…' : '上传照片'}
-              <input type="file" multiple accept="image/*" disabled={isCompressingImages} onChange={onPhotoFileUpload} className="sr-only" />
+            {photos.map(p => (
+              <div key={p.id} className={`relative aspect-square overflow-hidden rounded-lg bg-concrete ${p.status === 'error' ? 'ring-2 ring-rose-400' : ''}`}>
+                <img src={p.preview} alt="" className={`w-full h-full object-cover ${p.status === 'error' ? 'opacity-40' : 'opacity-60'}`} />
+                {p.status === 'error' ? (
+                  <div className="absolute inset-0 flex flex-col justify-between bg-white/70 p-1.5" role="alert">
+                    <span className="flex items-start gap-1 text-[11px] leading-snug text-rose-800">
+                      <AlertTriangle className="mt-0.5 w-3 h-3 shrink-0" />
+                      <span className="line-clamp-4" title={p.error}>{p.error}</span>
+                    </span>
+                    <span className="flex justify-end gap-1">
+                      {p.retryable !== false && (
+                        <button type="button" onClick={() => uploads.retryPhoto(p.id)} className="flex-1 inline-flex items-center justify-center gap-1 h-7 rounded-md bg-night text-[11px] font-semibold text-white">
+                          <RotateCcw className="w-3 h-3" />
+                          重试
+                        </button>
+                      )}
+                      <button type="button" onClick={() => uploads.removePhoto(p.id)} className="w-7 h-7 inline-flex items-center justify-center rounded-md bg-white text-slate-600" aria-label={`移除 ${p.name}`}>
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                ) : (
+                  <div className="absolute inset-x-0 bottom-0 bg-night/75 px-1.5 pb-1.5 pt-1 text-white">
+                    <div className="mb-1 flex items-center justify-between text-[11px] font-semibold">
+                      <span>{p.status === 'waiting' ? '排队中' : `${p.percent}%`}</span>
+                      <button type="button" onClick={() => uploads.removePhoto(p.id)} className="inline-flex w-5 h-5 items-center justify-center rounded text-white/80 hover:text-white" aria-label={`取消上传 ${p.name}`}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <ProgressBar value={p.percent} label={`${p.name} 上传进度`} className="bg-white/25" />
+                  </div>
+                )}
+              </div>
+            ))}
+            <label className="aspect-square flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-line text-[13px] text-slate-500 cursor-pointer hover:border-sky hover:text-sky-deep transition-colors">
+              <Upload className="w-5 h-5" />
+              上传照片
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={e => {
+                  if (e.target.files?.length) uploads.addPhotos(e.target.files);
+                  e.target.value = '';
+                }}
+                className="sr-only"
+              />
             </label>
           </div>
 
@@ -238,14 +273,18 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
 
           <div className="mt-5 flex flex-col sm:flex-row gap-2">
-            <label className={`btn btn-sm btn-outline cursor-pointer shrink-0 ${isUploadingVideo ? 'pointer-events-none' : ''}`}>
-              {isUploadingVideo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
-              {isUploadingVideo ? `上传中 ${videoUploadProgress}%` : '上传视频'}
+            <label className={`btn btn-sm btn-outline cursor-pointer shrink-0 ${video?.status === 'uploading' ? 'pointer-events-none opacity-60' : ''}`}>
+              {video?.status === 'uploading' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
+              {video?.status === 'uploading' ? `上传中 ${video.percent}%` : form.videoUrl ? '换一个视频' : '上传视频'}
               <input
                 type="file"
-                disabled={isUploadingVideo}
+                disabled={video?.status === 'uploading'}
                 accept="video/mp4,video/webm,video/ogg,video/quicktime"
-                onChange={onVideoFileUpload}
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) uploads.startVideo(file);
+                  e.target.value = '';
+                }}
                 className="sr-only"
               />
             </label>
@@ -257,14 +296,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               className="field field-sm font-sign"
             />
           </div>
-          {isUploadingVideo && (
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-concrete">
-              <div className="h-full bg-sky transition-[width] duration-300" style={{ width: `${videoUploadProgress}%` }} />
+          {video && (
+            <div className={`mt-2 rounded-lg border px-3 py-2.5 ${video.status === 'error' ? 'border-rose-200 bg-rose-50' : 'border-line bg-white'}`} role={video.status === 'error' ? 'alert' : undefined}>
+              <div className="mb-1.5 flex items-center justify-between gap-3 text-[13px]">
+                <span className="min-w-0 truncate font-medium text-night">{video.name}</span>
+                <span className="shrink-0 font-sign text-slate-500">
+                  {formatMb(video.transferred)} / {formatMb(video.total)}
+                </span>
+              </div>
+              {video.status === 'uploading' ? (
+                <div className="flex items-center gap-3">
+                  <ProgressBar value={video.percent} label="视频上传进度" />
+                  <button type="button" onClick={uploads.cancelVideo} className="shrink-0 text-xs text-slate-500 hover:text-rose-700">
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="flex-1 min-w-[12rem] text-[13px] text-rose-800">{video.error}</p>
+                  {video.retryable !== false && (
+                    <button type="button" onClick={uploads.retryVideo} className="btn btn-sm btn-outline">
+                      <RotateCcw className="w-4 h-4" />
+                      重试
+                    </button>
+                  )}
+                  <button type="button" onClick={uploads.cancelVideo} className="btn btn-sm btn-ghost">
+                    移除
+                  </button>
+                </div>
+              )}
             </div>
           )}
-          {form.videoUrl && !isUploadingVideo && (
+          {form.videoUrl && video?.status !== 'uploading' && (
             <div className="mt-3 overflow-hidden rounded-lg bg-black">
-              <video src={form.videoUrl} controls playsInline className="w-full aspect-video max-h-56 object-contain" />
+              <video src={form.videoUrl} controls playsInline preload="metadata" className="w-full aspect-video max-h-56 object-contain" />
               <div className="flex justify-end bg-night px-3 py-1.5">
                 <button type="button" onClick={() => onChangeForm({ videoUrl: '' })} className="text-xs text-white/70 hover:text-rose-200">
                   移除视频
