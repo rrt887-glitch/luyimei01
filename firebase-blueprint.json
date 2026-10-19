@@ -1,0 +1,877 @@
+{
+  "entities": {
+    "Inquiry": {
+      "title": "Project Inquiry & CRM Lead",
+      "description": "Engineering project inquiry submitted by road construction clients or managed by authorized CRM staff.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique identifier for the inquiry."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Client or contact person name."
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "CRM display name for client."
+        },
+        "company": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Client company or organization name."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Phone number, WhatsApp contact, or business email."
+        },
+        "needType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Requested product or engineering service type."
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Project city or region location."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Detailed project requirements or technical specifications."
+        },
+        "buyerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Optional Firebase Auth UID of the buyer who submitted the inquiry."
+        },
+        "buyerEmail": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Optional email of the buyer who submitted the inquiry."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timestamp when the inquiry was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timestamp when the inquiry was last updated."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "reviewing",
+            "contacted"
+          ],
+          "description": "Current processing status of the inquiry."
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "new",
+            "following",
+            "quoted",
+            "negotiating",
+            "won",
+            "lost"
+          ],
+          "description": "CRM lifecycle stage."
+        },
+        "assignedStaffId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Assigned staff UID; empty string '' means the lead is in the public pool (always present)."
+        },
+        "assignedStaffName": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Assigned staff name."
+        },
+        "estimatedValueUsd": {
+          "type": "number",
+          "description": "Estimated deal value in USD."
+        },
+        "notes": {
+          "type": "array",
+          "description": "CRM follow-up notes array."
+        },
+        "followUpNotes": {
+          "type": "array",
+          "description": "Synchronized CRM follow-up notes list."
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "CRM customer archive ID, linked server-side by the onInquiryCreated Cloud Function."
+        }
+      },
+      "required": [
+        "id",
+        "phone",
+        "needType",
+        "createdAt",
+        "assignedStaffId"
+      ]
+    },
+    "Favorite": {
+      "title": "Saved Product Favorite",
+      "description": "User bookmarked road maintenance products strictly isolated by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique favorite document identifier."
+        },
+        "productId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ID of the saved product."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Authenticated user UID (must match request.auth.uid)."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Creation timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "productId",
+        "userId",
+        "createdAt"
+      ]
+    },
+    "Product": {
+      "title": "Product Item",
+      "description": "Road maintenance material or machinery item in public catalog (supports tombstone deletion via isDeleted).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Product ID."
+        },
+        "nameKey": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Localization key or fallback name."
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 40,
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$",
+          "description": "Category id from site_config/categories (built-ins: material, equipment)."
+        },
+        "catKey": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Localization category key."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Model SKU code."
+        },
+        "descKey": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Description key or text."
+        },
+        "price": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Price in USD."
+        },
+        "unitKey": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Unit localization key."
+        },
+        "specKey": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Specification text."
+        },
+        "inStock": {
+          "type": "boolean",
+          "description": "Availability state."
+        },
+        "isDeleted": {
+          "type": "boolean",
+          "description": "Cloud tombstone flag indicating product was deleted across all devices."
+        },
+        "year": {
+          "type": "number",
+          "description": "Production year."
+        },
+        "brand": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Brand code."
+        },
+        "condition": {
+          "type": "string",
+          "enum": [
+            "new",
+            "certified"
+          ],
+          "description": "Condition state."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "published",
+            "archived",
+            "out_of_stock"
+          ],
+          "description": "Product publication status."
+        },
+        "customName": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Custom display name."
+        },
+        "customSpec": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Custom specification."
+        },
+        "customDesc": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Custom description."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Featured flag."
+        },
+        "videoUrl": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Firebase Storage or CDN URL for product video."
+        },
+        "videoThumbnail": {
+          "type": "string",
+          "maxLength": 500000,
+          "description": "Video thumbnail URL."
+        },
+        "images": {
+          "type": "array",
+          "description": "Array of product image URLs."
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Custom unit label."
+        },
+        "tierPrices": {
+          "type": "array",
+          "description": "Volume tier pricing array."
+        },
+        "supplySpecs": {
+          "type": "object",
+          "description": "Factory supply and packaging specifications."
+        },
+        "translations": {
+          "type": "object",
+          "description": "English / Arabic / Russian text for the website: { en|ar|ru: { name, desc, spec, leadTime, moq, capacityLabel, baseLocation, packaging } }."
+        },
+        "userModified": {
+          "type": "boolean",
+          "description": "Flag indicating admin modification."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Last modification timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "model",
+        "price",
+        "inStock"
+      ]
+    },
+    "BuyerProfile": {
+      "title": "Registered Buyer Account Profile",
+      "description": "Cross-device buyer account profile bound to Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Buyer document ID (matches Firebase Auth UID)."
+        },
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Buyer email address."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Buyer contact name."
+        },
+        "company": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Buyer company or organization."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Buyer phone or WhatsApp."
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Buyer country or region."
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Buyer membership tier label."
+        },
+        "registeredAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Registration timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Last update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "uid",
+        "email",
+        "name",
+        "registeredAt"
+      ]
+    },
+    "CustomerProfile": {
+      "title": "CRM Customer Archive Profile",
+      "description": "Enterprise customer CRM profile synchronized across all admin devices.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique customer archive ID."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Customer name."
+        },
+        "company": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Company name."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Customer email."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Customer phone."
+        },
+        "country": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Country or region."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "vip",
+            "frozen"
+          ],
+          "description": "CRM risk/VIP status."
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Acquisition channel source."
+        },
+        "inquiryCount": {
+          "type": "number",
+          "description": "Number of inquiries."
+        },
+        "totalQuotationUsd": {
+          "type": "number",
+          "description": "Total quotation amount in USD."
+        },
+        "registeredAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Registration timestamp."
+        },
+        "lastActiveAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Last active timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "company",
+        "email",
+        "phone",
+        "country",
+        "status",
+        "lastActiveAt"
+      ]
+    },
+    "AuditLog": {
+      "title": "Audit Log Item",
+      "description": "Append-only traceability record of staff and administrator actions.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Log ID."
+        },
+        "operator": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Operator name."
+        },
+        "operatorRole": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "sales_rep"
+          ],
+          "description": "Role of the operator."
+        },
+        "action": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Action performed."
+        },
+        "target": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Target entity."
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Action details."
+        },
+        "timestamp": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Timestamp formatted."
+        }
+      },
+      "required": [
+        "id",
+        "operator",
+        "action",
+        "target",
+        "timestamp"
+      ]
+    },
+    "StaffAccount": {
+      "title": "Sanitized Staff Account Profile",
+      "description": "Internal employee and administrator RBAC profile document. Credentials (password, salt, passwordHash) are strictly forbidden.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique staff identifier (matches Firebase Auth UID or staff ID)."
+        },
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Bound Firebase Authentication UID."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Staff member full name."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Normalized login mobile phone number."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Staff email address."
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "super_admin",
+            "sales_rep"
+          ],
+          "description": "RBAC permission role."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "suspended"
+          ],
+          "description": "Account activation status."
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Timestamp of last login."
+        },
+        "assignedLeadsCount": {
+          "type": "number",
+          "description": "Count of assigned CRM leads."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Account creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Account update timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "phone",
+        "role",
+        "status"
+      ]
+    },
+    "SiteContactConfig": {
+      "title": "Enterprise Official Contact Configuration",
+      "description": "Real-time enterprise contact configuration for WhatsApp, hotline, WeChat, and email.",
+      "type": "object",
+      "properties": {
+        "whatsappNumber": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Digits-only international WhatsApp number."
+        },
+        "whatsappDisplay": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Formatted WhatsApp display number."
+        },
+        "hotlinePhone": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Official hotline phone number."
+        },
+        "wechatId": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Official WeChat ID."
+        },
+        "officialEmail": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Official business email."
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Headquarters address."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Last update timestamp."
+        }
+      },
+      "required": [
+        "wechatId",
+        "officialEmail",
+        "address"
+      ]
+    },
+    "Quotation": {
+      "title": "Issued Proforma Invoice",
+      "description": "Immutable record of a quotation (PI) issued to a client, optionally linked to a CRM lead and customer.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Document ID (derived from the quotation number)."
+        },
+        "quotationNumber": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Human-readable PI number, e.g. PI-LYM-20261016-7KQ2ZD."
+        },
+        "leadId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Linked CRM lead (inquiries/{id})."
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Linked customer archive (customers/{id})."
+        },
+        "clientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Client contact name."
+        },
+        "clientCompany": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Client company."
+        },
+        "clientCountry": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Client country."
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Issue date (display)."
+        },
+        "validUntil": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Validity period."
+        },
+        "portOfLoading": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Port of loading."
+        },
+        "paymentTerms": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Payment terms."
+        },
+        "currency": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Currency label."
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 100,
+          "description": "Line items (productId, productName, model, unitPriceUsd, quantity, unit, amountUsd)."
+        },
+        "totalAmountUsd": {
+          "type": "number",
+          "description": "Total amount in USD."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Remarks."
+        },
+        "lang": {
+          "type": "string",
+          "enum": [
+            "en",
+            "bilingual",
+            "ar",
+            "ru"
+          ],
+          "description": "Document language."
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Issuer display name (must match the issuer's staff document)."
+        },
+        "createdByUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Issuer UID (must equal request.auth.uid)."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp."
+        }
+      },
+      "required": [
+        "id",
+        "quotationNumber",
+        "clientName",
+        "items",
+        "totalAmountUsd",
+        "currency",
+        "createdBy",
+        "createdByUid",
+        "createdAt"
+      ]
+    },
+    "BillingConfig": {
+      "title": "Quotation Billing (Bank) Details",
+      "description": "Beneficiary bank details printed on proforma invoices. Stored at site_config/billing; readable by active staff only.",
+      "type": "object",
+      "properties": {
+        "beneficiary": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Account holder (beneficiary) name."
+        },
+        "bankName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Bank and branch name."
+        },
+        "bankAddress": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Bank address."
+        },
+        "accountNumber": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Account number / IBAN."
+        },
+        "swiftCode": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "SWIFT / BIC code."
+        },
+        "remarks": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Extra payment remarks printed on the invoice."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp of the last change."
+        }
+      },
+      "required": [
+        "beneficiary",
+        "bankName",
+        "accountNumber"
+      ]
+    },
+    "CategoryConfig": {
+      "title": "Product Categories",
+      "description": "Ordered product categories shown on the website. Stored at site_config/categories; public read, super-admin write.",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 40,
+          "description": "[{ id, name: { zh, en?, ar?, ru? } }] in display order."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp of the last change."
+        }
+      },
+      "required": [
+        "items"
+      ]
+    }
+  },
+  "firestore": {
+    "/inquiries/{inquiryId}": {
+      "schema": "Inquiry",
+      "description": "Collection of engineering project inquiry documents (public create, buyer self-read, staff read/update, super_admin delete)."
+    },
+    "/favorites/{favoriteId}": {
+      "schema": "Favorite",
+      "description": "Collection of user bookmarked products isolated by request.auth.uid."
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Collection of road engineering catalog products (public read, active staff write, super_admin delete)."
+    },
+    "/buyers/{buyerId}": {
+      "schema": "BuyerProfile",
+      "description": "Collection of registered buyer profiles (owner read/write, staff read)."
+    },
+    "/customers/{customerId}": {
+      "schema": "CustomerProfile",
+      "description": "Collection of CRM customer archives (authenticated create, staff read/update, super_admin delete)."
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Collection of append-only traceability audit records (staff read/create)."
+    },
+    "/staff/{staffId}": {
+      "schema": "StaffAccount",
+      "description": "Collection of sanitized staff and administrator profile documents (staff read, super_admin write, zero credentials)."
+    },
+    "/site_config/{configId}": {
+      "schema": "SiteContactConfig",
+      "description": "Enterprise official contact configuration at site_config/contact (public read, super-admin write). site_config/billing holds bank details (schema BillingConfig, active-staff read, super-admin write)."
+    },
+    "/quotations/{quotationId}": {
+      "schema": "Quotation",
+      "description": "Issued quotations (active staff create in own name, immutable, super_admin read all / delete, reps read own)."
+    },
+    "/site_config/billing": {
+      "schema": "BillingConfig",
+      "description": "Bank details printed on quotations (active-staff read, super-admin write)."
+    },
+    "/site_config/categories": {
+      "schema": "CategoryConfig",
+      "description": "Product categories (public read, super-admin write)."
+    }
+  }
+}

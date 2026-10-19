@@ -1,0 +1,546 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model (Strictly Aligned with firebase-blueprint.json & security_spec.md)
+    // ===============================================================
+    //
+    // 1. Collection: inquiries (/inquiries/{inquiryId})
+    //    Required: ['id', 'phone', 'needType', 'createdAt']
+    //    Allowed:  ['id', 'name', 'customerName', 'company', 'phone', 'needType', 'location', 'message', 'buyerUid', 'buyerEmail', 'createdAt', 'updatedAt', 'status', 'stage', 'assignedStaffId', 'assignedStaffName', 'estimatedValueUsd', 'notes', 'followUpNotes']
+    //
+    // 2. Collection: favorites (/favorites/{favId})
+    //    Required: ['id', 'productId', 'userId', 'createdAt']
+    //    Allowed:  ['id', 'productId', 'userId', 'createdAt']
+    //
+    // 3. Collection: products (/products/{productId})
+    //    Required: ['id', 'type', 'model', 'price', 'inStock'] (or tombstone: ['id', 'isDeleted'])
+    //    Allowed:  ['id', 'nameKey', 'type', 'catKey', 'model', 'descKey', 'price', 'unitKey', 'specKey', 'inStock', 'isDeleted', 'year', 'brand', 'condition', 'status', 'customName', 'customSpec', 'customDesc', 'featured', 'videoUrl', 'videoThumbnail', 'images', 'unit', 'tierPrices', 'supplySpecs', 'userModified', 'updatedAt']
+    //
+    // 4. Collection: buyers (/buyers/{buyerUid})
+    //    Required: ['id', 'uid', 'email', 'name', 'registeredAt']
+    //    Allowed:  ['id', 'uid', 'email', 'name', 'company', 'phone', 'country', 'role', 'registeredAt', 'updatedAt']
+    //
+    // 5. Collection: customers (/customers/{customerId})
+    //    Required: ['id', 'name', 'company', 'email', 'phone', 'country', 'status', 'lastActiveAt']
+    //    Allowed:  ['id', 'name', 'company', 'email', 'phone', 'country', 'status', 'source', 'inquiryCount', 'totalQuotationUsd', 'registeredAt', 'lastActiveAt']
+    //
+    // 6. Collection: audit_logs (/audit_logs/{logId})
+    //    Required: ['id', 'operator', 'action', 'target', 'timestamp']
+    //    Allowed:  ['id', 'operator', 'operatorRole', 'action', 'target', 'details', 'timestamp']
+    //
+    // 7. Collection: staff (/staff/{staffUid})
+    //    Required: ['id', 'name', 'phone', 'role', 'status']
+    //    Allowed:  ['id', 'uid', 'name', 'phone', 'email', 'role', 'status', 'lastLoginAt', 'assignedLeadsCount', 'createdAt', 'updatedAt']
+    //
+    // 8. Collection: site_config (/site_config/{configId})
+    //    Required: ['wechatId', 'officialEmail', 'address']
+    //    Allowed:  ['whatsappNumber', 'whatsappDisplay', 'hotlinePhone', 'wechatId', 'officialEmail', 'address', 'updatedAt']
+    //    site_config/billing (bank details printed on quotations) uses isValidBillingConfig instead:
+    //    Required: ['beneficiary', 'bankName', 'accountNumber']
+    //    Allowed:  ['beneficiary', 'bankName', 'bankAddress', 'accountNumber', 'swiftCode', 'remarks', 'updatedAt']
+    //    Readable by active staff only (never public); writable by super admins only.
+    //    site_config/categories (product categories) uses isValidCategoryConfig:
+    //    Required: ['items']   Allowed: ['items', 'updatedAt']   Public read, super-admin write.
+    //
+    //    signup_captchas (hashed picture-captcha answers) is server-only: no client access.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ---------------------------------------------------------------
+    // Identity & RBAC
+    // The staff/{uid} document is the SINGLE source of truth for staff authorization.
+    // Custom Claims are only a client-side hint and are never trusted here, so suspending,
+    // demoting or deleting a staff document revokes server-side access immediately, and an
+    // Auth account whose staff document was removed can never regain privileges via stale claims.
+    // staff/{uid} documents are written exclusively by the Admin SDK (Cloud Functions /
+    // scripts/init-super-admin.mjs), see match /staff/{staffUid} below.
+    // ---------------------------------------------------------------
+
+    function staffDocPath() {
+      return /databases/$(database)/documents/staff/$(request.auth.uid);
+    }
+
+    function hasActiveStaffDoc() {
+      return isAuthenticated() &&
+        exists(staffDocPath()) &&
+        get(staffDocPath()).data.get('status', 'active') == 'active';
+    }
+
+    function isAdmin() {
+      return hasActiveStaffDoc() && get(staffDocPath()).data.role == 'super_admin';
+    }
+
+    function isActiveStaff() {
+      return hasActiveStaffDoc() && get(staffDocPath()).data.role in ['super_admin', 'sales_rep'];
+    }
+
+    // A lead is "owned" by the caller when it sits in the public pool or is assigned to the caller.
+    function isPoolOrSelf(assignedId) {
+      return assignedId == null || assignedId == '' || assignedId == request.auth.uid;
+    }
+
+    // Follow-up notes are append-only for sales reps: existing notes can never be removed or rewritten.
+    function notesAppendOnly() {
+      return request.resource.data.get('notes', []).size() >= resource.data.get('notes', []).size() &&
+        request.resource.data.get('notes', []).hasAll(resource.data.get('notes', []));
+    }
+
+    // Sales Rep Lead Isolation Guard:
+    // Super Admin can update/assign any lead. Sales Rep can ONLY update leads that are currently
+    // in the public pool or assigned to themselves, can ONLY assign leads to themselves or release
+    // them back to the pool, cannot rewrite history (createdAt / buyerUid / notes).
+    function canStaffUpdateInquiry() {
+      return isAdmin() || (
+        isActiveStaff() &&
+        isPoolOrSelf(resource.data.get('assignedStaffId', '')) &&
+        isPoolOrSelf(request.resource.data.get('assignedStaffId', '')) &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.get('buyerUid', null) == resource.data.get('buyerUid', null) &&
+        request.resource.data.get('customerId', null) == resource.data.get('customerId', null) &&
+        notesAppendOnly()
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    // Full Inquiry / Lead schema validator (used by active staff or shared base validation)
+    function isValidInquiry(data) {
+      return hasRequiredFields(['id', 'phone', 'needType', 'createdAt', 'assignedStaffId']) &&
+        hasOnlyAllowedFields([
+          'id', 'name', 'customerName', 'company', 'phone', 'needType', 'location', 'message',
+          'buyerUid', 'buyerEmail', 'createdAt', 'updatedAt', 'status', 'stage',
+          'assignedStaffId', 'assignedStaffName', 'estimatedValueUsd', 'notes', 'followUpNotes',
+          'customerId'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.phone is string && data.phone.size() >= 1 && data.phone.size() <= 150 &&
+        data.needType is string && data.needType.size() >= 1 && data.needType.size() <= 200 &&
+        data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 64 &&
+        (!('name' in data) || (data.name is string && data.name.size() <= 120)) &&
+        (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 120)) &&
+        (!('company' in data) || (data.company is string && data.company.size() <= 200)) &&
+        (!('location' in data) || (data.location is string && data.location.size() <= 200)) &&
+        (!('message' in data) || (data.message is string && data.message.size() <= 5000)) &&
+        (!('buyerUid' in data) || (data.buyerUid is string && data.buyerUid.size() <= 128)) &&
+        (!('buyerEmail' in data) || (data.buyerEmail is string && data.buyerEmail.size() <= 200)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64)) &&
+        (!('status' in data) || data.status in ['pending', 'reviewing', 'contacted']) &&
+        (!('stage' in data) || data.stage in ['new', 'following', 'quoted', 'negotiating', 'won', 'lost']) &&
+        // '' = public pool. The field is REQUIRED so that sales reps can query `assignedStaffId in ['', uid]`.
+        data.assignedStaffId is string && data.assignedStaffId.size() <= 128 &&
+        (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 160)) &&
+        (!('assignedStaffName' in data) || (data.assignedStaffName is string && data.assignedStaffName.size() <= 120)) &&
+        (!('estimatedValueUsd' in data) || (data.estimatedValueUsd is number && data.estimatedValueUsd >= 0 && data.estimatedValueUsd <= 1000000000)) &&
+        (!('notes' in data) || (data.notes is list && data.notes.size() <= 500)) &&
+        (!('followUpNotes' in data) || (data.followUpNotes is list && data.followUpNotes.size() <= 500));
+    }
+
+    // Strict Public Inquiry Creation Guard:
+    // Prevents anonymous visitors from injecting stage='won', estimatedValueUsd, notes/followUpNotes,
+    // assignedStaffId, or spoofing another buyer's buyerUid.
+    function isValidPublicInquiryCreate(data, inquiryId) {
+      return isValidInquiry(data) &&
+        data.id == inquiryId &&
+        !('estimatedValueUsd' in data) &&
+        data.assignedStaffId == '' &&
+        !('assignedStaffName' in data) &&
+        !('customerId' in data) &&
+        !('notes' in data) &&
+        !('followUpNotes' in data) &&
+        (!('stage' in data) || data.stage == 'new') &&
+        (!('status' in data) || data.status == 'pending') &&
+        (!('buyerUid' in data) || (isAuthenticated() && data.buyerUid == request.auth.uid));
+    }
+
+    function isValidFavorite(data) {
+      return hasRequiredFields(['id', 'productId', 'userId', 'createdAt']) &&
+        hasOnlyAllowedFields(['id', 'productId', 'userId', 'createdAt']) &&
+        isAuthenticated() &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.productId is string && data.productId.size() >= 1 && data.productId.size() <= 100 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.createdAt is string && data.createdAt.size() >= 1 && data.createdAt.size() <= 64;
+    }
+
+    function isValidProduct(data) {
+      return hasOnlyAllowedFields([
+          'id', 'nameKey', 'type', 'catKey', 'model', 'descKey', 'price', 'unitKey',
+          'specKey', 'inStock', 'isDeleted', 'year', 'brand', 'condition', 'status',
+          'customName', 'customSpec', 'customDesc', 'featured', 'videoUrl', 'videoThumbnail',
+          'images', 'unit', 'tierPrices', 'supplySpecs', 'translations', 'userModified', 'updatedAt'
+        ]) &&
+        (
+          (
+            hasRequiredFields(['id', 'type', 'model', 'price', 'inStock']) &&
+            data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+            data.type is string && data.type.matches('^[a-z0-9][a-z0-9_-]{0,39}$') &&
+            data.model is string && data.model.size() >= 1 && data.model.size() <= 120 &&
+            data.price is string && data.price.size() >= 1 && data.price.size() <= 64 &&
+            data.inStock is bool
+          ) ||
+          (
+            hasRequiredFields(['id', 'isDeleted']) &&
+            data.id is string && data.id.size() >= 1 && data.id.size() <= 100 &&
+            data.isDeleted == true
+          )
+        ) &&
+        (!('nameKey' in data) || (data.nameKey is string && data.nameKey.size() <= 200)) &&
+        (!('catKey' in data) || (data.catKey is string && data.catKey.size() <= 100)) &&
+        (!('descKey' in data) || (data.descKey is string && data.descKey.size() <= 2000)) &&
+        (!('unitKey' in data) || (data.unitKey is string && data.unitKey.size() <= 100)) &&
+        (!('specKey' in data) || (data.specKey is string && data.specKey.size() <= 200)) &&
+        (!('isDeleted' in data) || data.isDeleted is bool) &&
+        (!('year' in data) || (data.year is number && data.year >= 1990 && data.year <= 2100)) &&
+        (!('brand' in data) || (data.brand is string && data.brand.size() <= 50)) &&
+        (!('condition' in data) || data.condition in ['new', 'certified']) &&
+        (!('status' in data) || data.status in ['draft', 'published', 'archived', 'out_of_stock']) &&
+        (!('customName' in data) || (data.customName is string && data.customName.size() <= 300)) &&
+        (!('customSpec' in data) || (data.customSpec is string && data.customSpec.size() <= 500)) &&
+        (!('customDesc' in data) || (data.customDesc is string && data.customDesc.size() <= 5000)) &&
+        (!('featured' in data) || data.featured is bool) &&
+        (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 2000 && !data.videoUrl.matches('^data:.*'))) &&
+        (!('videoThumbnail' in data) || (data.videoThumbnail is string && data.videoThumbnail.size() <= 500000)) &&
+        (!('images' in data) || (data.images is list && data.images.size() <= 20)) &&
+        (!('unit' in data) || (data.unit is string && data.unit.size() <= 32)) &&
+        (!('tierPrices' in data) || (data.tierPrices is list && data.tierPrices.size() <= 20)) &&
+        (!('supplySpecs' in data) || data.supplySpecs is map) &&
+        (!('translations' in data) || (data.translations is map && data.translations.keys().hasOnly(['en', 'ar', 'ru']))) &&
+        (!('userModified' in data) || data.userModified is bool) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidBuyerProfile(data) {
+      return hasRequiredFields(['id', 'uid', 'email', 'name', 'registeredAt']) &&
+        hasOnlyAllowedFields([
+          'id', 'uid', 'email', 'name', 'company', 'phone', 'country', 'role', 'registeredAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 150 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.registeredAt is string && data.registeredAt.size() >= 1 && data.registeredAt.size() <= 64 &&
+        (!('company' in data) || (data.company is string && data.company.size() <= 200)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 50)) &&
+        (!('country' in data) || (data.country is string && data.country.size() <= 100)) &&
+        (!('role' in data) || (data.role is string && data.role.size() <= 64)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidCustomerProfile(data) {
+      return hasRequiredFields(['id', 'name', 'company', 'email', 'phone', 'country', 'status', 'lastActiveAt']) &&
+        hasOnlyAllowedFields([
+          'id', 'name', 'company', 'email', 'phone', 'country', 'status', 'source',
+          'inquiryCount', 'totalQuotationUsd', 'registeredAt', 'lastActiveAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.company is string && data.company.size() <= 200 &&
+        data.email is string && data.email.size() <= 150 &&
+        data.phone is string && data.phone.size() <= 50 &&
+        data.country is string && data.country.size() <= 100 &&
+        data.status in ['active', 'vip', 'frozen'] &&
+        data.lastActiveAt is string && data.lastActiveAt.size() >= 1 && data.lastActiveAt.size() <= 64 &&
+        (!('source' in data) || (data.source is string && data.source.size() <= 100)) &&
+        (!('inquiryCount' in data) || (data.inquiryCount is number && data.inquiryCount >= 0 && data.inquiryCount <= 1000000)) &&
+        (!('totalQuotationUsd' in data) || (data.totalQuotationUsd is number && data.totalQuotationUsd >= 0 && data.totalQuotationUsd <= 1000000000)) &&
+        (!('registeredAt' in data) || (data.registeredAt is string && data.registeredAt.size() <= 64));
+    }
+
+    // Desensitized Staff Document Validator: strictly forbids passwordHash or salt
+    function isValidStaffDoc(data, staffUid) {
+      return hasRequiredFields(['id', 'name', 'phone', 'role', 'status']) &&
+        hasOnlyAllowedFields([
+          'id', 'uid', 'name', 'phone', 'email', 'role', 'status',
+          'lastLoginAt', 'assignedLeadsCount', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        (!('uid' in data) || (data.uid is string && data.uid == staffUid)) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.phone is string && data.phone.size() <= 50 &&
+        (data.role == 'super_admin' || data.phone.size() >= 1) &&
+        data.role in ['super_admin', 'sales_rep'] &&
+        data.status in ['active', 'suspended'] &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+        (!('lastLoginAt' in data) || (data.lastLoginAt is string && data.lastLoginAt.size() <= 100)) &&
+        (!('assignedLeadsCount' in data) || (data.assignedLeadsCount is number && data.assignedLeadsCount >= 0)) &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 100)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 100));
+    }
+
+    function isValidAuditLog(data) {
+      return hasRequiredFields(['id', 'operator', 'action', 'target', 'timestamp']) &&
+        hasOnlyAllowedFields([
+          'id', 'operator', 'operatorRole', 'action', 'target', 'details', 'timestamp'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.operator is string && data.operator.size() >= 1 && data.operator.size() <= 120 &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 300 &&
+        data.target is string && data.target.size() <= 500 &&
+        data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 100 &&
+        (!('operatorRole' in data) || data.operatorRole in ['super_admin', 'sales_rep']) &&
+        (!('details' in data) || (data.details is string && data.details.size() <= 2000));
+    }
+
+    // Issued Proforma Invoice (immutable once created).
+    function isValidQuotation(data) {
+      return hasRequiredFields([
+          'id', 'quotationNumber', 'clientName', 'items', 'totalAmountUsd', 'currency',
+          'createdBy', 'createdByUid', 'createdAt'
+        ]) &&
+        hasOnlyAllowedFields([
+          'id', 'quotationNumber', 'leadId', 'customerId', 'clientName', 'clientCompany', 'clientCountry',
+          'date', 'validUntil', 'portOfLoading', 'paymentTerms', 'currency', 'items', 'totalAmountUsd',
+          'notes', 'lang', 'createdBy', 'createdByUid', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
+        data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.quotationNumber is string && data.quotationNumber.size() >= 1 && data.quotationNumber.size() <= 64 &&
+        data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 200 &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 100 &&
+        data.totalAmountUsd is number && data.totalAmountUsd >= 0 && data.totalAmountUsd <= 10000000000 &&
+        data.currency is string && data.currency.size() <= 20 &&
+        data.createdBy is string && data.createdBy.size() <= 120 &&
+        data.createdByUid is string && data.createdByUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        (!('leadId' in data) || (data.leadId is string && data.leadId.size() <= 128)) &&
+        (!('customerId' in data) || (data.customerId is string && data.customerId.size() <= 160)) &&
+        (!('clientCompany' in data) || (data.clientCompany is string && data.clientCompany.size() <= 200)) &&
+        (!('clientCountry' in data) || (data.clientCountry is string && data.clientCountry.size() <= 100)) &&
+        (!('date' in data) || (data.date is string && data.date.size() <= 64)) &&
+        (!('validUntil' in data) || (data.validUntil is string && data.validUntil.size() <= 64)) &&
+        (!('portOfLoading' in data) || (data.portOfLoading is string && data.portOfLoading.size() <= 200)) &&
+        (!('paymentTerms' in data) || (data.paymentTerms is string && data.paymentTerms.size() <= 300)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+        (!('lang' in data) || data.lang in ['en', 'bilingual', 'ar', 'ru']);
+    }
+
+    function isValidSiteContactConfig(data) {
+      return hasRequiredFields(['wechatId', 'officialEmail', 'address']) &&
+        hasOnlyAllowedFields([
+          'whatsappNumber', 'whatsappDisplay', 'hotlinePhone',
+          'wechatId', 'officialEmail', 'address', 'updatedAt'
+        ]) &&
+        data.wechatId is string && data.wechatId.size() <= 80 &&
+        data.officialEmail is string && data.officialEmail.size() <= 150 &&
+        data.address is string && data.address.size() <= 300 &&
+        (!('whatsappNumber' in data) || (data.whatsappNumber is string && data.whatsappNumber.size() <= 40)) &&
+        (!('whatsappDisplay' in data) || (data.whatsappDisplay is string && data.whatsappDisplay.size() <= 60)) &&
+        (!('hotlinePhone' in data) || (data.hotlinePhone is string && data.hotlinePhone.size() <= 60)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    // Product categories (site_config/categories): one ordered list, edited in the console.
+    function isValidCategoryConfig(data) {
+      return hasRequiredFields(['items']) &&
+        hasOnlyAllowedFields(['items', 'updatedAt']) &&
+        data.items is list && data.items.size() >= 1 && data.items.size() <= 40 &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    function isValidBillingConfig(data) {
+      return hasRequiredFields(['beneficiary', 'bankName', 'accountNumber']) &&
+        hasOnlyAllowedFields([
+          'beneficiary', 'bankName', 'bankAddress', 'accountNumber', 'swiftCode', 'remarks', 'updatedAt'
+        ]) &&
+        data.beneficiary is string && data.beneficiary.size() > 0 && data.beneficiary.size() <= 200 &&
+        data.bankName is string && data.bankName.size() > 0 && data.bankName.size() <= 200 &&
+        data.accountNumber is string && data.accountNumber.size() > 0 && data.accountNumber.size() <= 80 &&
+        (!('bankAddress' in data) || (data.bankAddress is string && data.bankAddress.size() <= 300)) &&
+        (!('swiftCode' in data) || (data.swiftCode is string && data.swiftCode.size() <= 20)) &&
+        (!('remarks' in data) || (data.remarks is string && data.remarks.size() <= 500)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    // ===============================================================
+    // Collection Security Rules
+    // ===============================================================
+
+    // 1. Inquiries & CRM Leads:
+    // - Public visitors can ONLY create clean initial inquiries via `isValidPublicInquiryCreate`
+    //   (cannot spoof stage='won', estimatedValueUsd, followUpNotes, assignedStaffId, or another user's buyerUid).
+    // - Active staff can create manual leads and update existing leads.
+    // - Active staff can read all inquiries; authenticated buyers can read inquiries where buyerUid == request.auth.uid.
+    // - Only super_admin can delete.
+    match /inquiries/{inquiryId} {
+      // Staff-created manual leads: super_admin may assign anyone; sales reps only themselves or the pool.
+      allow create: if isValidPublicInquiryCreate(request.resource.data, inquiryId) ||
+        (
+          isActiveStaff() &&
+          isValidInquiry(request.resource.data) &&
+          request.resource.data.id == inquiryId &&
+          !('customerId' in request.resource.data) &&
+          (isAdmin() || isPoolOrSelf(request.resource.data.assignedStaffId))
+        );
+      // Sales reps can only READ pool leads and their own leads (they never download colleagues' clients).
+      // Client queries must therefore filter `where('assignedStaffId', 'in', ['', uid])`.
+      allow read: if isAdmin() ||
+        (isActiveStaff() && resource.data.assignedStaffId in ['', request.auth.uid]) ||
+        (
+          isAuthenticated() &&
+          'buyerUid' in resource.data &&
+          resource.data.buyerUid == request.auth.uid
+        );
+      allow update: if canStaffUpdateInquiry() && isValidInquiry(request.resource.data) && request.resource.data.id == inquiryId;
+      allow delete: if isAdmin();
+    }
+
+    // 2. Favorites:
+    // - Strictly isolated per authenticated user UID (request.auth.uid == userId).
+    match /favorites/{favId} {
+      allow read: if isAuthenticated() && (
+        resource == null || resource.data.userId == request.auth.uid
+      );
+      allow create, update: if isValidFavorite(request.resource.data);
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // 3. Products:
+    // - Public read-only for catalog visitors.
+    // - Strictly restricted to super_admin (`isAdmin()`) for create, update, and delete per security_spec.md Payload 5.
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 4. Buyer Profiles:
+    // - Authenticated buyer can read/create/update their own profile document (buyers/{uid}).
+    // - Active staff can read buyer profiles; super_admin can manage/delete.
+    match /buyers/{buyerUid} {
+      allow get: if (isAuthenticated() && request.auth.uid == buyerUid) || isActiveStaff();
+      allow list: if isActiveStaff();
+      allow create, update: if (
+        isAuthenticated() &&
+        request.auth.uid == buyerUid &&
+        isValidBuyerProfile(request.resource.data) &&
+        request.resource.data.id == buyerUid &&
+        request.resource.data.uid == buyerUid
+      ) || (
+        isAdmin() && isValidBuyerProfile(request.resource.data)
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 5. Customer Profiles (B2B CRM Customers):
+    // - The full customer archive (every client's contacts) is SUPER-ADMIN ONLY for read / update,
+    //   otherwise sales-rep lead isolation could be bypassed through this collection.
+    // - Counters (inquiryCount / totalQuotationUsd) are maintained server-side by Cloud Functions.
+    // - Newly registered buyer can ONLY create their own bound `CUST-{request.auth.uid}` record once
+    //   with `status == 'active'` and zeroed quotation/inquiry counters (prevents CRM spam).
+    // - Only super_admin can delete customer profiles.
+    match /customers/{customerId} {
+      allow read: if isAdmin();
+      allow create: if (
+        isAdmin() && isValidCustomerProfile(request.resource.data)
+      ) || (
+        isAuthenticated() &&
+        customerId == ('CUST-' + request.auth.uid) &&
+        !exists(/databases/$(database)/documents/customers/$(customerId)) &&
+        isValidCustomerProfile(request.resource.data) &&
+        request.resource.data.id == customerId &&
+        request.resource.data.status == 'active' &&
+        (!('inquiryCount' in request.resource.data) || request.resource.data.inquiryCount == 0) &&
+        (!('totalQuotationUsd' in request.resource.data) || request.resource.data.totalQuotationUsd == 0)
+      );
+      allow update: if isAdmin() && isValidCustomerProfile(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // 6. Staff Accounts (Desensitized RBAC Directory):
+    // - Document ID must equal the employee's Firebase Auth UID.
+    // - NEVER readable by unauthenticated visitors.
+    // - Each authenticated user can `get` their own `staff/{request.auth.uid}` doc to verify role/status.
+    // - Only active staff can `list` the staff directory.
+    // - create / delete and any change of `role` / `status` happen ONLY through the Admin SDK
+    //   (Cloud Functions adminCreateStaff / adminDeleteStaff / adminUpdateStaffStatus), which keeps
+    //   Firebase Auth accounts, Custom Claims and staff documents in sync. Clients cannot do this directly.
+    // - An active staff member may only touch their own `lastLoginAt` / `updatedAt`.
+    // - A super admin may edit display fields (name / email / phone) of any staff document.
+    match /staff/{staffUid} {
+      allow get: if isAuthenticated() && (request.auth.uid == staffUid || isActiveStaff());
+      allow list: if isActiveStaff();
+      allow create, delete: if false;
+      allow update: if isValidStaffDoc(request.resource.data, staffUid) && (
+        (
+          request.auth.uid == staffUid &&
+          hasActiveStaffDoc() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLoginAt', 'updatedAt'])
+        ) || (
+          isAdmin() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'phone', 'updatedAt'])
+        )
+      );
+    }
+
+    // 7. Audit Logs:
+    // - Any active staff member writes their own entries; only super admins can read the trail.
+    // - The operator name / role must match the caller's own staff document (no impersonation).
+    // - Immutable (no updates or deletes).
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isActiveStaff() &&
+        isValidAuditLog(request.resource.data) &&
+        request.resource.data.id == logId &&
+        request.resource.data.operator == get(staffDocPath()).data.name &&
+        request.resource.data.get('operatorRole', get(staffDocPath()).data.role) == get(staffDocPath()).data.role;
+      allow update, delete: if false;
+    }
+
+    // 7b. Quotations (issued Proforma Invoices):
+    // - Any active staff may issue a quotation in their own name; it is immutable afterwards.
+    // - Super admins read all quotations; sales reps only read the ones they issued
+    //   (client queries must filter `where('createdByUid', '==', uid)`).
+    match /quotations/{quotationId} {
+      allow read: if isAdmin() ||
+        (isActiveStaff() && (resource == null || resource.data.createdByUid == request.auth.uid));
+      allow create: if isActiveStaff() &&
+        isValidQuotation(request.resource.data) &&
+        request.resource.data.id == quotationId &&
+        request.resource.data.createdByUid == request.auth.uid &&
+        request.resource.data.createdBy == get(staffDocPath()).data.name;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // 8. Site Contact Config:
+    // - Public read-only so visitors see the real official WhatsApp, phone, WeChat, and email.
+    // - Strictly restricted to super_admin (`isAdmin()`) for create/update/delete so sales reps cannot hijack official WhatsApp numbers.
+    match /site_config/{configId} {
+      // Contact details are public (shown on the website); bank details are for staff only.
+      allow read: if configId != 'billing' || isActiveStaff();
+      allow create, update: if isAdmin() && (
+        (configId == 'billing' && isValidBillingConfig(request.resource.data)) ||
+        (configId == 'categories' && isValidCategoryConfig(request.resource.data)) ||
+        (configId != 'billing' && configId != 'categories' && isValidSiteContactConfig(request.resource.data))
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Default deny for any other collection
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

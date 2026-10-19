@@ -1,0 +1,698 @@
+@import "tailwindcss";
+
+/*
+ * 路易美 design tokens (v8)
+ * - sky      #38bdf8  主题色（保持不变）：主按钮、密封线、焦点、选中态
+ * - sky-deep #0369a1  白底上的蓝色文字/链接（#0284c7 对比度不足 4.5:1）
+ * - night    #0f2536  正文墨色 + 深色区块（联系区、页脚、中台侧栏）
+ * - concrete #eef2f4  交替区块底色
+ * - line     #d6dee4  分隔线
+ * 字体：中文走系统字体（不依赖境外字体服务，大陆访问不受影响）；
+ *       数字、型号、价格用 DIN 系路牌字体（Windows: Bahnschrift，macOS: DIN Alternate）。
+ */
+@theme {
+  --color-sky: #38bdf8;
+  --color-sky-hover: #0ea5e9;
+  --color-sky-deep: #0369a1;
+  --color-sky-wash: #e6f6fe;
+  --color-night: #0f2536;
+  --color-night-soft: #1b3a50;
+  --color-concrete: #eef2f4;
+  --color-line: #d6dee4;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC", "MiSans",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+  --font-sign: "Bahnschrift", "DIN Alternate", "DIN 2014", "D-DIN", "DIN Pro", "Barlow", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* Legacy font-mono usages map onto the road-sign face as well. */
+  --font-mono: var(--font-sign);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  /* Admin: wide enough (with the 232px sidebar) for one-row lead cards. */
+  --breakpoint-wide: 85rem;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 80px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    color: var(--color-night);
+    background-color: #ffffff;
+    font-family: var(--font-sans);
+    font-feature-settings: "palt" 0;
+  }
+
+  ::selection {
+    background: var(--color-sky);
+    color: var(--color-night);
+  }
+
+  .font-sign,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+  }
+
+  /* Accessible focus styling */
+  *:focus-visible {
+    outline: 2px solid var(--color-sky);
+    outline-offset: 3px;
+  }
+}
+
+@layer components {
+  .page-wrap {
+    width: min(1240px, 100% - 32px);
+    margin-inline: auto;
+  }
+  @media (min-width: 640px) {
+    .page-wrap {
+      width: min(1240px, 100% - 64px);
+    }
+  }
+
+  .section-title {
+    font-size: clamp(1.75rem, 1.2rem + 1.8vw, 2.5rem);
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--color-night);
+    text-wrap: balance;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1.25rem;
+    border-radius: 0.5rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0 0.875rem;
+    font-size: 0.8125rem;
+  }
+  .btn-primary {
+    background: var(--color-sky);
+    color: var(--color-night);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-sky-hover);
+  }
+  .btn-outline {
+    border: 1px solid var(--color-line);
+    background: #ffffff;
+    color: var(--color-night);
+  }
+  .btn-outline:hover:not(:disabled) {
+    border-color: var(--color-night);
+  }
+  .btn-on-dark {
+    border: 1px solid rgb(255 255 255 / 0.35);
+    color: #ffffff;
+  }
+  .btn-on-dark:hover:not(:disabled) {
+    border-color: #ffffff;
+    background: rgb(255 255 255 / 0.08);
+  }
+
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-line);
+    background: #ffffff;
+    color: var(--color-night);
+    font-size: 0.9375rem;
+    outline: none;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .field::placeholder {
+    color: #8a9aa8;
+  }
+  .field:focus {
+    border-color: var(--color-sky-deep);
+    box-shadow: 0 0 0 3px rgb(56 189 248 / 0.25);
+  }
+  .field-error {
+    border-color: #dc2626;
+  }
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #334a5c;
+  }
+
+  /* Segmented control used for category tabs */
+  .segmented {
+    display: inline-flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 0.625rem;
+    background: var(--color-concrete);
+  }
+  .segmented > button {
+    padding: 0.4rem 0.875rem;
+    border-radius: 0.4rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #4a5f70;
+    transition: background-color 160ms ease, color 160ms ease;
+  }
+  .segmented > button:hover {
+    color: var(--color-night);
+  }
+  .segmented > button[aria-pressed="true"] {
+    background: #ffffff;
+    color: var(--color-night);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(15 37 54 / 0.08);
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Admin console ("调度台")
+ * Calm light workspace, one accent (sky), status shown as dot + word.
+ * Hierarchy: page 12px panels on concrete; controls 8px; chips 6px.
+ * ---------------------------------------------------------------------- */
+@layer components {
+  .adm-page {
+    width: 100%;
+    max-width: 1360px;
+    margin-inline: auto;
+  }
+  .adm-title {
+    font-size: 1.5rem;
+    line-height: 1.25;
+    font-weight: 700;
+    color: var(--color-night);
+  }
+  .adm-sub {
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    color: #5b6e7d;
+  }
+
+  .panel {
+    background: #ffffff;
+    border: 1px solid var(--color-line);
+    border-radius: 0.75rem;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid #e6ecf0;
+  }
+  .panel-title {
+    font-size: 0.9375rem;
+    font-weight: 650;
+    color: var(--color-night);
+  }
+  .panel-body {
+    padding: 1.25rem;
+  }
+
+  .stat-label {
+    font-size: 0.8125rem;
+    color: #5b6e7d;
+  }
+  .stat-value {
+    margin-top: 0.375rem;
+    font-family: var(--font-sign);
+    font-variant-numeric: tabular-nums;
+    font-size: 1.75rem;
+    line-height: 1.1;
+    font-weight: 600;
+    color: var(--color-night);
+  }
+  .stat-note {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    color: #7a8b98;
+  }
+
+  /* Status chip: dot + word. Tone via data-tone. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.5rem;
+    padding: 0 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.78125rem;
+    font-weight: 550;
+    white-space: nowrap;
+    background: var(--chip-bg, #eef2f4);
+    color: var(--chip-fg, #455a6a);
+  }
+  .chip::before {
+    content: "";
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--chip-dot, currentColor);
+  }
+  .chip.no-dot::before {
+    display: none;
+  }
+  [data-tone="sky"] { --chip-bg: #e6f6fe; --chip-fg: #075985; --chip-dot: #38bdf8; }
+  [data-tone="indigo"] { --chip-bg: #eef0fe; --chip-fg: #3730a3; --chip-dot: #6366f1; }
+  [data-tone="amber"] { --chip-bg: #fff6e0; --chip-fg: #8a5300; --chip-dot: #f2a516; }
+  [data-tone="violet"] { --chip-bg: #f4effe; --chip-fg: #5b21b6; --chip-dot: #8b5cf6; }
+  [data-tone="emerald"] { --chip-bg: #e7f7ef; --chip-fg: #065f46; --chip-dot: #10b981; }
+  [data-tone="rose"] { --chip-bg: #fdeef0; --chip-fg: #9f1239; --chip-dot: #f43f5e; }
+  [data-tone="slate"] { --chip-bg: #eef2f4; --chip-fg: #4a5d6c; --chip-dot: #94a3b8; }
+
+  .tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .tbl th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 0.625rem 1rem;
+    background: #f7f9fa;
+    border-bottom: 1px solid #e6ecf0;
+    font-size: 0.78125rem;
+    font-weight: 600;
+    color: #5b6e7d;
+    text-align: start;
+    white-space: nowrap;
+  }
+  .tbl td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #edf1f4;
+    color: var(--color-night);
+    vertical-align: middle;
+  }
+  .tbl tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .tbl tbody tr {
+    transition: background-color 120ms ease;
+  }
+  .tbl tbody tr:hover {
+    background: #f8fafb;
+  }
+  .tbl tbody tr[data-selected="true"] {
+    background: #f0f9ff;
+  }
+
+  .field-sm {
+    min-height: 2.25rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+  }
+  select.field,
+  select.field-sm {
+    padding-inline-end: 2rem;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6e7d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.7rem center;
+  }
+  [dir="rtl"] select.field,
+  [dir="rtl"] select.field-sm {
+    background-position: left 0.7rem center;
+  }
+
+  .btn-dark {
+    background: var(--color-night);
+    color: #ffffff;
+  }
+  .btn-dark:hover:not(:disabled) {
+    background: var(--color-night-soft);
+  }
+  .btn-ghost {
+    color: #334a5c;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-concrete);
+    color: var(--color-night);
+  }
+  .btn-danger {
+    background: #e11d48;
+    color: #ffffff;
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #be123c;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    color: #5b6e7d;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+  .icon-btn:hover:not(:disabled) {
+    background: var(--color-concrete);
+    color: var(--color-night);
+  }
+  .icon-btn.danger:hover:not(:disabled) {
+    background: #fdeef0;
+    color: #be123c;
+  }
+
+  .tabs-underline {
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--color-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs-underline > button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.75rem 0;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #5b6e7d;
+    white-space: nowrap;
+  }
+  .tabs-underline > button:hover {
+    color: var(--color-night);
+  }
+  .tabs-underline > button[aria-pressed="true"],
+  .tabs-underline > button[aria-selected="true"] {
+    color: var(--color-night);
+    font-weight: 650;
+  }
+  .tabs-underline > button[aria-pressed="true"]::after,
+  .tabs-underline > button[aria-selected="true"]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--color-sky);
+  }
+  .tabs-underline .count {
+    font-family: var(--font-sign);
+    font-size: 0.75rem;
+    color: #8a9aa8;
+  }
+
+  .adm-check {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--color-sky-deep);
+    cursor: pointer;
+  }
+}
+
+@keyframes lym-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes lym-bar-in {
+  from {
+    transform: translate(-50%, 16px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+.drawer-panel {
+  animation: lym-drawer-in 260ms var(--ease-out-quart) both;
+}
+.batch-bar {
+  transform: translateX(-50%);
+  animation: lym-bar-in 240ms var(--ease-out-quart) both;
+}
+.view-enter {
+  animation: lym-fade 220ms ease-out both;
+}
+
+/* -------------------------------------------------------------------------
+ * Motion
+ * One orchestrated moment: the hero's sealant bead draws along the crack
+ * edge, then the headline settles. Everything else only answers the user
+ * (modals, drawers, toasts) with a short fade-rise.
+ * ---------------------------------------------------------------------- */
+@keyframes lym-seal-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes lym-nozzle {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+@keyframes lym-settle {
+  from {
+    transform: scale(1.08);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes lym-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lym-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes lym-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Path is ~1500 user units long; a fixed dash length works in every browser (pathLength does not). */
+.hero-seal {
+  stroke-dasharray: 1700;
+  stroke-dashoffset: 1700;
+  animation: lym-seal-draw 2000ms cubic-bezier(0.45, 0.05, 0.35, 1) 500ms forwards;
+}
+.hero-nozzle {
+  opacity: 0;
+}
+@supports (offset-path: path("M0 0")) {
+  .hero-nozzle {
+    offset-rotate: 0deg;
+    animation: lym-nozzle 2000ms cubic-bezier(0.45, 0.05, 0.35, 1) 500ms forwards;
+  }
+}
+.hero-photo {
+  animation: lym-settle 2600ms var(--ease-out-quart) both;
+}
+.hero-rise {
+  opacity: 0;
+  animation: lym-rise 800ms var(--ease-out-quart) forwards;
+  animation-delay: calc(700ms + var(--i, 0) * 120ms);
+}
+
+/* One-time reveal on first scroll into view (Reveal component). */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 700ms var(--ease-out-quart), transform 700ms var(--ease-out-quart);
+  transition-delay: calc(var(--d, 0) * 70ms);
+}
+.reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* Process strip: line fills left→right, each node lights up as the fill reaches it. */
+.steps-fill {
+  transform: scaleX(0);
+  transition: transform 1400ms var(--ease-out-quart) 150ms;
+}
+.steps.is-in .steps-fill {
+  transform: scaleX(1);
+}
+.step-node {
+  background: var(--color-concrete);
+  color: #6b7f8f;
+  transition: background-color 300ms ease, color 300ms ease, transform 300ms var(--ease-out-quart);
+  transition-delay: calc(150ms + var(--d, 0) * 380ms);
+}
+.steps.is-in .step-node {
+  background: var(--color-night);
+  color: #ffffff;
+}
+
+/* Generic "appears in response to an action" entrance (used by existing animate-in markup) */
+.animate-in {
+  animation: lym-fade 180ms ease-out both;
+}
+.animate-in.slide-in-from-bottom-3,
+.animate-in.slide-in-from-top-2,
+.animate-in.zoom-in-95,
+.anim-pop {
+  animation: lym-pop 220ms var(--ease-out-quart) both;
+}
+[role="dialog"] > :last-child:not(.drawer-panel) {
+  animation: lym-pop 240ms var(--ease-out-quart) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .hero-seal {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .hero-nozzle {
+    display: none;
+  }
+  .hero-photo {
+    animation: none;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .steps-fill {
+    transform: none;
+  }
+  .hero-rise {
+    animation: none;
+    opacity: 1;
+  }
+  .animate-in,
+  .anim-pop,
+  [role="dialog"] > :last-child,
+  .drawer-panel,
+  .batch-bar,
+  .view-enter {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print Styles for Proforma Invoice & Quotation Sheet */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+
+  /* Hide everything by default */
+  header,
+  nav,
+  aside,
+  footer,
+  button,
+  input,
+  select,
+  textarea,
+  .no-print,
+  [role="dialog"],
+  .toast-container {
+    display: none !important;
+  }
+
+  body, html {
+    background: #ffffff !important;
+    color: #1d1d1f !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Reset outer container margins */
+  main, div {
+    box-shadow: none !important;
+  }
+
+  /* Only show and isolate the quotation sheet paper */
+  #quotation-sheet-paper {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  #quotation-sheet-paper * {
+    visibility: visible !important;
+  }
+}

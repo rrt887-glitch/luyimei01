@@ -1,0 +1,100 @@
+/**
+ * Cross-file configuration consistency.
+ *
+ * A few values cannot be imported everywhere (security rules and firebase.json are not TypeScript),
+ * so they are duplicated on purpose. These tests fail the build as soon as one copy drifts.
+ */
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import appletConfig from '../firebase-applet-config.json';
+import { STAFF_AUTH_EMAIL_DOMAIN, FIRESTORE_DATABASE_ID, FUNCTIONS_REGION } from '../src/config/appConfig';
+
+const root = path.resolve(__dirname, '..');
+const read = (rel: string) => fs.readFileSync(path.join(root, rel), 'utf8');
+
+describe('Named Firestore database ID is identical everywhere', () => {
+  const dbId = appletConfig.firestoreDatabaseId;
+
+  it('firebase-applet-config.json defines a named database', () => {
+    expect(dbId).toBeTruthy();
+    expect(dbId).not.toBe('(default)');
+    expect(FIRESTORE_DATABASE_ID).toBe(dbId);
+  });
+
+  it('firebase.json deploys rules to the same database', () => {
+    const firebaseJson = JSON.parse(read('firebase.json'));
+    expect(firebaseJson.firestore?.database).toBe(dbId);
+    expect(firebaseJson.firestore?.rules).toBe('firestore.rules');
+    expect(firebaseJson.storage?.rules).toBe('storage.rules');
+  });
+
+  it('storage.rules cross-service lookups target the same database', () => {
+    const storageRules = read('storage.rules');
+    const ids = Array.from(storageRules.matchAll(/\/databases\/([^/]+)\/documents/g)).map(m => m[1]);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(id).toBe(dbId);
+    }
+  });
+
+  it('Cloud Functions and the admin bootstrap script use the same database', () => {
+    expect(read('functions/src/index.ts')).toContain(`'${dbId}'`);
+    expect(read('scripts/init-super-admin.mjs')).toContain('firestoreDatabaseId');
+  });
+});
+
+describe('Staff auth email domain is identical in frontend and Cloud Functions', () => {
+  it('functions/src/index.ts uses STAFF_AUTH_EMAIL_DOMAIN', () => {
+    expect(read('functions/src/index.ts')).toContain(`STAFF_AUTH_EMAIL_DOMAIN = '${STAFF_AUTH_EMAIL_DOMAIN}'`);
+  });
+});
+
+describe('Cloud Functions region is identical in frontend and backend', () => {
+  it('functions/src/index.ts deploys to FUNCTIONS_REGION', () => {
+    expect(read('functions/src/index.ts')).toContain(`FUNCTIONS_REGION = '${FUNCTIONS_REGION}'`);
+  });
+});
+
+describe('Functions build configuration', () => {
+  it('functions/ can be built and deployed', () => {
+    expect(fs.existsSync(path.join(root, 'functions/tsconfig.json'))).toBe(true);
+    const pkg = JSON.parse(read('functions/package.json'));
+    expect(pkg.main).toBe('lib/index.js');
+    expect(pkg.scripts?.build).toBeTruthy();
+  });
+
+  it('functions use a Node.js runtime that Google still accepts (Node 20 is decommissioned 2026-10-30)', () => {
+    const pkg = JSON.parse(read('functions/package.json'));
+    expect(Number(pkg.engines?.node)).toBeGreaterThanOrEqual(22);
+  });
+});
+
+describe('Product category ids follow one pattern everywhere', () => {
+  it('firestore.rules and src/config/categories.ts agree, and the built-ins match it', () => {
+    const rulesPattern = read('firestore.rules').match(/data\.type\.matches\('([^']+)'\)/)?.[1];
+    const codePattern = read('src/config/categories.ts').match(/CATEGORY_ID_PATTERN = \/(.+)\/;/)?.[1];
+    expect(rulesPattern).toBeTruthy();
+    expect(codePattern).toBe(rulesPattern);
+    const re = new RegExp(rulesPattern!);
+    for (const id of ['material', 'equipment', 'c-1a2b3c']) expect(re.test(id)).toBe(true);
+    for (const id of ['', 'Material', 'a b', '-x']) expect(re.test(id)).toBe(false);
+  });
+});
+
+describe('Buyer sign-up goes through the captcha functions with local SVG fallback', () => {
+  it('functions export getSignupCaptcha and registerBuyer, and the website calls them first with local vector SVG fallback', () => {
+    const fn = read('functions/src/index.ts');
+    expect(fn).toContain('export const getSignupCaptcha');
+    expect(fn).toContain('export const registerBuyer');
+    // The picture must not carry its answer as text in either cloud or local SVG renderer.
+    expect(fn).not.toMatch(/<text[\s>]/);
+    const localFallback = read('src/utils/localSignupFallback.ts');
+    expect(localFallback).not.toMatch(/<text[\s>]/);
+    const api = read('src/services/api.ts');
+    expect(api).toContain("'getSignupCaptcha'");
+    expect(api).toContain("'registerBuyer'");
+    expect(api).toContain('createLocalSignupCaptcha');
+  });
+});
+

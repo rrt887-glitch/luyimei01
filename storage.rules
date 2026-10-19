@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// NOTE: The Firestore database ID below MUST stay identical to `firestoreDatabaseId` in
+// firebase-applet-config.json and `firestore.database` in firebase.json.
+// tests/config.consistency.test.ts enforces this automatically.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function staffDocPath() {
+      return /databases/ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad/documents/staff/$(request.auth.uid);
+    }
+
+    // The staff/{uid} document is the single source of truth (same policy as firestore.rules):
+    // Custom Claims are never trusted, so suspending, demoting or deleting the staff document
+    // immediately revokes media write access.
+    function isSuperAdmin() {
+      return request.auth != null &&
+        firestore.exists(staffDocPath()) &&
+        firestore.get(staffDocPath()).data.role == 'super_admin' &&
+        firestore.get(staffDocPath()).data.get('status', 'active') == 'active';
+    }
+
+    // Product Images: public read, super_admin write, max 10MB, image/* content type only
+    match /products/{productId}/images/{fileName} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin() &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow delete: if isSuperAdmin();
+    }
+
+    // Product Videos: public read, super_admin write, max 150MB, video/* content type only
+    match /products/{productId}/videos/{fileName} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin() &&
+        request.resource.size <= 150 * 1024 * 1024 &&
+        request.resource.contentType.matches('video/.*');
+      allow delete: if isSuperAdmin();
+    }
+
+    // Default deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "lym-admin-functions",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions: staff identity management (Admin SDK) and inquiry -> customer linking",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.10.0"
+  }
+}
