@@ -65,8 +65,14 @@ export interface StaffAccount {
 
 export interface QuotationItem {
   productId: string;
+  /** Chinese product name, for the console. */
   productName: string;
   model: string;
+  /** Name and specification as printed (document language; *Zh is the Chinese line of a bilingual PI). */
+  name?: string;
+  nameZh?: string;
+  spec?: string;
+  specZh?: string;
   unitPriceUsd: number;
   quantity: number;
   unit: string;
@@ -93,6 +99,26 @@ export interface QuotationSheet {
   leadId?: string;
   customerId?: string;
   lang?: 'en' | 'bilingual' | 'ar' | 'ru';
+  /** Everything else printed on the document (missing on quotations issued before v14). */
+  details?: QuotationDetails;
+}
+
+/** Terms, charges and a snapshot of seller / bank details, so a re-download prints exactly what was issued. */
+export interface QuotationDetails {
+  incoterm?: string;
+  portOfDischarge?: string;
+  deliveryTime?: string;
+  packing?: string;
+  clientContact?: string;
+  clientAddress?: string;
+  subtotalUsd?: number;
+  freightUsd?: number;
+  insuranceUsd?: number;
+  discountUsd?: number;
+  depositPercent?: number;
+  standardTerms?: string;
+  seller?: { nameEn: string; nameZh: string; address: string; phone: string; email: string; website: string };
+  bank?: { beneficiary: string; bankName: string; bankAddress: string; accountNumber: string; swiftCode: string; remarks: string };
 }
 
 export interface AuditLogItem {

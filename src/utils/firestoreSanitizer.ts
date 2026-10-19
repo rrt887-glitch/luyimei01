@@ -187,6 +187,25 @@ export const BILLING_CONFIG_ALLOWED_KEYS = [
 
 export const CATEGORY_CONFIG_ALLOWED_KEYS = ['items', 'updatedAt'] as const;
 
+export const QUOTATION_CONFIG_ALLOWED_KEYS = [
+  'companyNameEn',
+  'companyNameZh',
+  'addressEn',
+  'phone',
+  'email',
+  'website',
+  'stampImage',
+  'defaultIncoterm',
+  'defaultPortOfLoading',
+  'defaultPaymentTerms',
+  'defaultDepositPercent',
+  'defaultDeliveryTime',
+  'defaultValidityDays',
+  'defaultPacking',
+  'standardTerms',
+  'updatedAt'
+] as const;
+
 export const SITE_CONTACT_CONFIG_ALLOWED_KEYS = [
   'whatsappNumber',
   'whatsappDisplay',
@@ -275,12 +294,25 @@ export const QUOTATION_ALLOWED_KEYS = [
   'totalAmountUsd',
   'notes',
   'lang',
+  'details',
   'createdBy',
   'createdByUid',
   'createdAt'
 ] as const;
 
-const QUOTATION_ITEM_KEYS = ['productId', 'productName', 'model', 'unitPriceUsd', 'quantity', 'unit', 'amountUsd'] as const;
+const QUOTATION_ITEM_KEYS = [
+  'productId',
+  'productName',
+  'model',
+  'name',
+  'nameZh',
+  'spec',
+  'specZh',
+  'unitPriceUsd',
+  'quantity',
+  'unit',
+  'amountUsd'
+] as const;
 
 export function sanitizeQuotationForFirestore(quotation: Record<string, any>): Record<string, any> {
   const cleaned = pickAllowedFields(quotation, QUOTATION_ALLOWED_KEYS);
@@ -307,4 +339,8 @@ export function sanitizeBillingConfigForFirestore(cfg: Record<string, any>): Rec
 
 export function sanitizeCategoryConfigForFirestore(cfg: Record<string, any>): Record<string, any> {
   return pickAllowedFields(cfg, CATEGORY_CONFIG_ALLOWED_KEYS);
+}
+
+export function sanitizeQuotationConfigForFirestore(cfg: Record<string, any>): Record<string, any> {
+  return pickAllowedFields(cfg, QUOTATION_CONFIG_ALLOWED_KEYS);
 }

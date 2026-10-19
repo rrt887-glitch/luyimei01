@@ -42,6 +42,8 @@ service cloud.firestore {
     //    Required: ['beneficiary', 'bankName', 'accountNumber']
     //    Allowed:  ['beneficiary', 'bankName', 'bankAddress', 'accountNumber', 'swiftCode', 'remarks', 'updatedAt']
     //    Readable by active staff only (never public); writable by super admins only.
+    //    site_config/quotation (seller details, stamp and default terms for quotations) uses
+    //    isValidQuotationConfig. Readable by active staff only; writable by super admins only.
     //    site_config/categories (product categories) uses isValidCategoryConfig:
     //    Required: ['items']   Allowed: ['items', 'updatedAt']   Public read, super-admin write.
     //
@@ -312,7 +314,7 @@ service cloud.firestore {
         hasOnlyAllowedFields([
           'id', 'quotationNumber', 'leadId', 'customerId', 'clientName', 'clientCompany', 'clientCountry',
           'date', 'validUntil', 'portOfLoading', 'paymentTerms', 'currency', 'items', 'totalAmountUsd',
-          'notes', 'lang', 'createdBy', 'createdByUid', 'createdAt'
+          'notes', 'lang', 'details', 'createdBy', 'createdByUid', 'createdAt'
         ]) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 128 &&
         data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
@@ -333,7 +335,34 @@ service cloud.firestore {
         (!('portOfLoading' in data) || (data.portOfLoading is string && data.portOfLoading.size() <= 200)) &&
         (!('paymentTerms' in data) || (data.paymentTerms is string && data.paymentTerms.size() <= 300)) &&
         (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
-        (!('lang' in data) || data.lang in ['en', 'bilingual', 'ar', 'ru']);
+        (!('lang' in data) || data.lang in ['en', 'bilingual', 'ar', 'ru']) &&
+        (!('details' in data) || (data.details is map && data.details.size() <= 40));
+    }
+
+    function isValidQuotationConfig(data) {
+      return hasRequiredFields(['companyNameEn']) &&
+        hasOnlyAllowedFields([
+          'companyNameEn', 'companyNameZh', 'addressEn', 'phone', 'email', 'website', 'stampImage',
+          'defaultIncoterm', 'defaultPortOfLoading', 'defaultPaymentTerms', 'defaultDepositPercent',
+          'defaultDeliveryTime', 'defaultValidityDays', 'defaultPacking', 'standardTerms', 'updatedAt'
+        ]) &&
+        data.companyNameEn is string && data.companyNameEn.size() > 0 && data.companyNameEn.size() <= 200 &&
+        (!('companyNameZh' in data) || (data.companyNameZh is string && data.companyNameZh.size() <= 200)) &&
+        (!('addressEn' in data) || (data.addressEn is string && data.addressEn.size() <= 300)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 80)) &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+        (!('website' in data) || (data.website is string && data.website.size() <= 150)) &&
+        (!('stampImage' in data) || (data.stampImage is string && data.stampImage.size() <= 300000 &&
+          (data.stampImage == '' || data.stampImage.matches('^data:image/(png|jpeg|webp);base64,.*')))) &&
+        (!('defaultIncoterm' in data) || data.defaultIncoterm in ['EXW', 'FOB', 'CFR', 'CIF', 'DAP']) &&
+        (!('defaultPortOfLoading' in data) || (data.defaultPortOfLoading is string && data.defaultPortOfLoading.size() <= 200)) &&
+        (!('defaultPaymentTerms' in data) || (data.defaultPaymentTerms is string && data.defaultPaymentTerms.size() <= 300)) &&
+        (!('defaultDepositPercent' in data) || (data.defaultDepositPercent is number && data.defaultDepositPercent >= 0 && data.defaultDepositPercent <= 100)) &&
+        (!('defaultDeliveryTime' in data) || (data.defaultDeliveryTime is string && data.defaultDeliveryTime.size() <= 200)) &&
+        (!('defaultValidityDays' in data) || (data.defaultValidityDays is number && data.defaultValidityDays >= 1 && data.defaultValidityDays <= 365)) &&
+        (!('defaultPacking' in data) || (data.defaultPacking is string && data.defaultPacking.size() <= 300)) &&
+        (!('standardTerms' in data) || (data.standardTerms is string && data.standardTerms.size() <= 2000)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
     function isValidSiteContactConfig(data) {
@@ -529,11 +558,12 @@ service cloud.firestore {
     // - Strictly restricted to super_admin (`isAdmin()`) for create/update/delete so sales reps cannot hijack official WhatsApp numbers.
     match /site_config/{configId} {
       // Contact details are public (shown on the website); bank details are for staff only.
-      allow read: if configId != 'billing' || isActiveStaff();
+      allow read: if !(configId in ['billing', 'quotation']) || isActiveStaff();
       allow create, update: if isAdmin() && (
         (configId == 'billing' && isValidBillingConfig(request.resource.data)) ||
+        (configId == 'quotation' && isValidQuotationConfig(request.resource.data)) ||
         (configId == 'categories' && isValidCategoryConfig(request.resource.data)) ||
-        (configId != 'billing' && configId != 'categories' && isValidSiteContactConfig(request.resource.data))
+        (!(configId in ['billing', 'quotation', 'categories']) && isValidSiteContactConfig(request.resource.data))
       );
       allow delete: if isAdmin();
     }

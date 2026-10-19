@@ -1,16 +1,26 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getProductCategories } from '../../config/categories';
-import { Product } from '../../types';
+import { Product, SupportedLanguage } from '../../types';
 import { adminApi } from '../../services/adminApi';
-import { QuotationItem, QuotationSheet, AdminLead } from '../../types/admin';
-import { useSiteContactConfig, hasConfiguredWhatsApp } from '../../config/whatsapp';
-import { normalizeClonedColorsForHtml2Canvas } from '../../utils/html2canvasSafeClone';
+import { QuotationSheet, AdminLead, QuotationItem } from '../../types/admin';
+import { useSiteContactConfig } from '../../config/whatsapp';
 import { generateQuotationNumber } from '../../services/admin/quotationService';
-// jsPDF / html2canvas (~600 KB) are loaded on demand in handleDownloadPdf, never in the main bundle.
-import { Printer, Download, Loader2, Plus, Trash2, CheckCircle2, ExternalLink, RefreshCw, FileText } from 'lucide-react';
-import { PageHeader, Panel, FormField, EmptyState } from './AdminUI';
+import { Printer, Download, Loader2, Plus, Trash2, CheckCircle2, ExternalLink, RefreshCw, FileText, Settings2, AlertTriangle, Eye } from 'lucide-react';
+import { PageHeader, Panel, FormField, EmptyState, Modal } from './AdminUI';
 import { formatDateTime } from '../../utils/format';
 import { useBillingConfig, isBillingConfigured } from '../../config/billing';
+import { useQuotationConfig } from '../../config/quotationConfig';
+import { localizeProduct } from '../../utils/productText';
+import { zh as dictZh } from '../../i18n/locales/zh';
+import { en as dictEn } from '../../i18n/locales/en';
+import { ar as dictAr } from '../../i18n/locales/ar';
+import { ru as dictRu } from '../../i18n/locales/ru';
+import logoUrl from '../../assets/brand/logo.svg';
+import { INCOTERMS, PI_UNITS, PiLang, addDays, countryForDocument, hasChinese, incotermDef, isoDate, money, round2, unitKeyFrom } from './quotation/piText';
+import { PiDocument, PiLine, documentFromQuotation, totalsFor } from './quotation/piDocument';
+import { SheetPreview } from './quotation/SheetPreview';
+import { printSheet, renderPdf } from './quotation/piOutput';
+import { QuotationSettingsModal } from './quotation/QuotationSettingsModal';
 
 interface QuotationViewProps {
   products: Product[];
@@ -21,144 +31,366 @@ interface QuotationViewProps {
   onShowToast: (msg: string) => void;
 }
 
-type QuotationLang = 'en' | 'bilingual' | 'ar' | 'ru';
+/** A line being edited. Name and spec follow the product and the document language unless overridden. */
+interface EditorLine {
+  key: string;
+  productId: string;
+  model: string;
+  productName: string;
+  unit: string;
+  quantity: number;
+  unitPriceUsd: number;
+  nameOverride?: string;
+  specOverride?: string;
+}
 
-export const QuotationView: React.FC<QuotationViewProps> = ({
-  products,
-  leads: propsLeads,
-  initialLeadId,
-  onClearInitialLeadId,
-  onRefreshData,
-  onShowToast
-}) => {
+const DICTS: Record<SupportedLanguage, any> = { zh: dictZh, en: dictEn, ar: dictAr, ru: dictRu };
+
+const LANG_OPTIONS: { key: PiLang; label: string }[] = [
+  { key: 'bilingual', label: '中英' },
+  { key: 'en', label: 'English' },
+  { key: 'ar', label: 'العربية' },
+  { key: 'ru', label: 'Русский' }
+];
+
+/** Name and spec lines of a product in the document language (bilingual = English + Chinese). */
+function productText(p: Product | undefined, lang: PiLang): { name: string; nameZh: string; spec: string; specZh: string } {
+  if (!p) return { name: '', nameZh: '', spec: '', specZh: '' };
+  const cats = getProductCategories();
+  const main = localizeProduct(p, lang === 'bilingual' ? 'en' : lang, DICTS[lang === 'bilingual' ? 'en' : lang], cats);
+  const zhText = localizeProduct(p, 'zh', DICTS.zh, cats);
+  const specOf = (t: typeof main, packLabel: string) => [t.spec, t.packaging && `${packLabel}: ${t.packaging}`].filter(Boolean).join('\n');
+  const packLabel = { bilingual: 'Packing', en: 'Packing', ar: 'التعبئة', ru: 'Упаковка' }[lang];
+  return {
+    name: main.name,
+    nameZh: lang === 'bilingual' ? zhText.name : '',
+    spec: specOf(main, packLabel),
+    specZh: lang === 'bilingual' ? specOf(zhText, '包装') : ''
+  };
+}
+
+const firstPrice = (price: string) => {
+  const m = (price || '').match(/\$?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/);
+  return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+};
+
+const num = (v: string, min = 0) => Math.max(min, Number.parseFloat(v) || 0);
+
+export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: propsLeads, initialLeadId, onClearInitialLeadId, onRefreshData, onShowToast }) => {
   const contactCfg = useSiteContactConfig();
   const { billing, loading: billingLoading } = useBillingConfig();
   const billingReady = isBillingConfigured(billing);
-  const waConfigured = hasConfiguredWhatsApp();
-  const [quotationLang, setQuotationLang] = useState<QuotationLang>('bilingual');
-  const [linkedLeadId, setLinkedLeadId] = useState<string>('');
-  const [clientName, setClientName] = useState('');
+  const { config, saved: configSaved, loading: configLoading } = useQuotationConfig();
+  const isSuperAdmin = adminApi.getCurrentStaff()?.role === 'super_admin';
+
+  const [lang, setLang] = useState<PiLang>('bilingual');
+  const [linkedLeadId, setLinkedLeadId] = useState('');
   const [clientCompany, setClientCompany] = useState('');
-  const [clientCountry, setClientCountry] = useState('');
-  const [portOfLoading, setPortOfLoading] = useState('Guangzhou / Huangpu Port, China (FOB)');
-  const [paymentTerms, setPaymentTerms] = useState('30% T/T Advance Deposit, 70% before shipment');
-  const [validDays, setValidDays] = useState('30 Days');
+  const [clientName, setClientName] = useState('');
+  const [clientContact, setClientContact] = useState('');
+  const [clientAddress, setClientAddress] = useState('');
+  const [destination, setDestination] = useState('');
 
-  const quotationSheetRef = useRef<HTMLDivElement>(null);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [lastDownloadedPdf, setLastDownloadedPdf] = useState<{
-    url: string;
-    filename: string;
-    sizeKb: number;
-    timestamp: string;
-  } | null>(null);
+  const [incoterm, setIncoterm] = useState(config.defaultIncoterm);
+  const [portOfLoading, setPortOfLoading] = useState(config.defaultPortOfLoading);
+  const [portOfDischarge, setPortOfDischarge] = useState('');
+  const [paymentTerms, setPaymentTerms] = useState(config.defaultPaymentTerms);
+  const [depositPercent, setDepositPercent] = useState(config.defaultDepositPercent);
+  const [deliveryTime, setDeliveryTime] = useState(config.defaultDeliveryTime);
+  const [validDays, setValidDays] = useState(config.defaultValidityDays);
+  const [packing, setPacking] = useState(config.defaultPacking);
+  const [remarks, setRemarks] = useState('');
+  const [freight, setFreight] = useState(0);
+  const [insurance, setInsurance] = useState(0);
+  const [discount, setDiscount] = useState(0);
 
-  // Controlled quotation number to guarantee that preview, record, and export strictly match
-  const [quotationNumber, setQuotationNumber] = useState<string>(() => generateQuotationNumber());
+  // Defaults arrive from Firestore after the first render; apply them once, unless already edited.
+  const termsTouched = useRef(false);
+  useEffect(() => {
+    if (configLoading || termsTouched.current) return;
+    setIncoterm(config.defaultIncoterm);
+    setPortOfLoading(config.defaultPortOfLoading);
+    setPaymentTerms(config.defaultPaymentTerms);
+    setDepositPercent(config.defaultDepositPercent);
+    setDeliveryTime(config.defaultDeliveryTime);
+    setValidDays(config.defaultValidityDays);
+    setPacking(config.defaultPacking);
+  }, [config, configLoading]);
+  const touch = <T,>(setter: (v: T) => void) => (v: T) => {
+    termsTouched.current = true;
+    setter(v);
+  };
+
+  const [items, setItems] = useState<EditorLine[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id || '');
+  const [addQty, setAddQty] = useState('1');
+  const [addUnit, setAddUnit] = useState('Ton');
+  const [addPrice, setAddPrice] = useState('');
+
+  const [quotationNumber, setQuotationNumber] = useState(() => generateQuotationNumber());
+  const [today] = useState(() => isoDate(new Date()));
   const [recentQuotations, setRecentQuotations] = useState<QuotationSheet[]>(() => adminApi.getQuotations());
-
   useEffect(() => adminApi.subscribeToQuotations(setRecentQuotations), []);
 
-  const handleRegenerateQuotationNumber = () => {
-    const newNo = generateQuotationNumber();
-    setQuotationNumber(newNo);
-    onShowToast(`新单号：${newNo}`);
+  const [busy, setBusy] = useState(false);
+  const [lastPdf, setLastPdf] = useState<{ url: string; filename: string; sizeKb: number; time: string } | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewing, setViewing] = useState<QuotationSheet | null>(null);
+  const outputRef = useRef<HTMLDivElement>(null);
+  const historyOutputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => () => (lastPdf ? URL.revokeObjectURL(lastPdf.url) : undefined), [lastPdf]);
+
+  // ---------------------------------------------------------------------------
+  // Products
+  // ---------------------------------------------------------------------------
+  const defaultsFor = (p: Product) => {
+    const zhUnit = localizeProduct(p, 'zh', DICTS.zh, getProductCategories()).unit;
+    const unit = unitKeyFrom(p.unit) || unitKeyFrom(zhUnit) || unitKeyFrom(zhUnit.split('/').pop()) || (p.type === 'equipment' ? 'Set' : 'Unit');
+    return { unit, price: firstPrice(p.price) };
   };
 
-  // Quotation items
-  const [items, setItems] = useState<QuotationItem[]>([]);
-
-  const [selectedProductId, setSelectedProductId] = useState(products[0]?.id || '0');
-  const [addItemQty, setAddItemQty] = useState(1);
-  const [addItemUnit, setAddItemUnit] = useState('Ton');
-  const [addItemUnitPrice, setAddItemUnitPrice] = useState<number>(420);
-
-  // Auto-detect unit and price when selected product changes
-  const handleSelectProductChange = (id: string) => {
+  const selectProduct = (id: string) => {
     setSelectedProductId(id);
-    const prod = products.find(p => p.id === id);
-    if (prod) {
-      const isTape = prod.model.includes('TAPE') || prod.model.includes('带') || (prod.customName || '').includes('带');
-      const isSealant = prod.model.includes('SEAL') || prod.model.includes('胶') || (prod.customName || '').includes('胶');
-      const isColdPatch = prod.model.includes('CP') || prod.model.includes('沥青') || (prod.customName || '').includes('沥青');
-      const defUnit = prod.unit || (prod.type === 'equipment' ? 'Set' : isTape ? 'Roll' : isSealant || isColdPatch ? 'Ton' : 'Unit');
-      setAddItemUnit(defUnit);
-
-      const match = prod.price.match(/\$([0-9,.]+)/);
-      if (match) {
-        setAddItemUnitPrice(parseFloat(match[1].replace(/,/g, '')));
-      } else {
-        // Face-to-face / Negotiable (面议): reset to 0 so seller enters actual agreed price
-        setAddItemUnitPrice(0);
-      }
-    }
+    const p = products.find(x => x.id === id);
+    if (!p) return;
+    const d = defaultsFor(p);
+    setAddUnit(d.unit);
+    setAddPrice(d.price ? String(d.price) : '');
   };
 
-  const totalAmountUsd = Math.max(0, items.reduce((sum, item) => sum + Math.max(0, item.amountUsd), 0));
+  useEffect(() => {
+    if (!selectedProductId && products[0]) selectProduct(products[0].id);
+    else if (selectedProductId && addPrice === '' && products.find(p => p.id === selectedProductId)) selectProduct(selectedProductId);
+    // Only when the catalogue first arrives.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products.length]);
 
-  // Quick prefill from CRM Leads
+  const addItem = () => {
+    const p = products.find(x => x.id === selectedProductId);
+    if (!p) return;
+    const price = round2(num(addPrice));
+    const quantity = Math.round(num(addQty) * 1000) / 1000;
+    if (price <= 0) {
+      onShowToast(`「${p.customName || p.model}」没有标价，请先填写单价`);
+      return;
+    }
+    if (quantity <= 0) {
+      onShowToast('数量要大于 0');
+      return;
+    }
+    const zhName = localizeProduct(p, 'zh', DICTS.zh, getProductCategories()).name;
+    setItems(prev => [
+      ...prev,
+      { key: `${p.id}-${Date.now()}`, productId: p.id, model: p.model, productName: zhName, unit: addUnit, quantity, unitPriceUsd: price }
+    ]);
+    onShowToast(`已添加 ${p.model}`);
+  };
+
+  const updateItem = (key: string, patch: Partial<EditorLine>) => setItems(prev => prev.map(i => (i.key === key ? { ...i, ...patch } : i)));
+  const removeItem = (key: string) => setItems(prev => prev.filter(i => i.key !== key));
+  const moveItem = (index: number, delta: number) =>
+    setItems(prev => {
+      const next = [...prev];
+      const j = index + delta;
+      if (j < 0 || j >= next.length) return prev;
+      [next[index], next[j]] = [next[j], next[index]];
+      return next;
+    });
+
+  const lines: PiLine[] = useMemo(
+    () =>
+      items.map(i => {
+        const t = productText(
+          products.find(p => p.id === i.productId),
+          lang
+        );
+        return {
+          model: i.model,
+          name: i.nameOverride ?? (t.name || i.productName),
+          nameZh: t.nameZh,
+          spec: i.specOverride ?? t.spec,
+          specZh: t.specZh,
+          unit: i.unit,
+          quantity: i.quantity,
+          unitPriceUsd: i.unitPriceUsd,
+          amountUsd: round2(i.unitPriceUsd * i.quantity)
+        };
+      }),
+    [items, products, lang]
+  );
+
+  const term = incotermDef(incoterm);
+  const effFreight = term.freight ? freight : 0;
+  const effInsurance = term.insurance ? insurance : 0;
+  const { subtotal, total } = totalsFor(lines, effFreight, effInsurance, discount);
+
+  // ---------------------------------------------------------------------------
+  // Leads
+  // ---------------------------------------------------------------------------
   const leads = propsLeads || adminApi.getLeads();
-  const handlePrefillFromLead = (leadId: string) => {
+  const fillFromLead = (lead: AdminLead) => {
+    setLinkedLeadId(lead.id);
+    setClientName(lead.customerName);
+    // Never invent a company name: an empty field is better than a made-up one on an invoice.
+    setClientCompany((lead.company || '').trim());
+    setClientContact([lead.phone, lead.buyerEmail].filter(Boolean).join(' / '));
+    setDestination(lead.location || '');
+  };
+  const handleLeadSelect = (leadId: string) => {
     if (!leadId) {
-      // Explicitly unlink: the next export must not write back to the previously selected lead.
       setLinkedLeadId('');
       onShowToast('已取消关联，这张报价单不会更新线索');
       return;
     }
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
-    setLinkedLeadId(lead.id);
-    setClientName(lead.customerName);
-    setClientCompany(
-      lead.company && lead.company.trim()
-        ? lead.company.trim()
-        : lead.customerName.includes('(')
-        ? lead.customerName
-        : `${lead.customerName} Enterprise`
-    );
-    setClientCountry(lead.location);
-    onShowToast(`已关联线索 ${lead.id}，开具后会更新它的估值和阶段`);
+    fillFromLead(lead);
+    onShowToast(`已关联线索，开具后会更新它的估值和阶段`);
   };
-
   useEffect(() => {
     if (!initialLeadId) return;
     const matched = leads.find(l => l.id === initialLeadId);
     if (matched) {
-      setLinkedLeadId(matched.id);
-      setClientName(matched.customerName);
-      setClientCompany(
-        matched.company && matched.company.trim()
-          ? matched.company.trim()
-          : matched.customerName.includes('(')
-          ? matched.customerName
-          : `${matched.customerName} Enterprise`
-      );
-      setClientCountry(matched.location);
+      fillFromLead(matched);
       onClearInitialLeadId?.();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLeadId, leads, onClearInitialLeadId]);
 
-  /**
-   * Persist the quotation (once per PI number) and write it back to the CRM.
-   * Returns null when the quotation could not be issued (validation / network) — the caller stops.
-   */
-  const issueCurrentQuotation = async (): Promise<{ alreadyIssued: boolean; crmSynced: boolean } | null> => {
+  // ---------------------------------------------------------------------------
+  // The document
+  // ---------------------------------------------------------------------------
+  const seller = {
+    nameEn: config.companyNameEn,
+    nameZh: config.companyNameZh,
+    address: config.addressEn,
+    phone: config.phone || contactCfg.hotlinePhone || '',
+    email: config.email || contactCfg.officialEmail || '',
+    website: config.website
+  };
+  const bank = billingReady
+    ? {
+        beneficiary: billing.beneficiary,
+        bankName: billing.bankName,
+        bankAddress: billing.bankAddress,
+        accountNumber: billing.accountNumber,
+        swiftCode: billing.swiftCode,
+        remarks: billing.remarks
+      }
+    : null;
+  const validUntil = addDays(today, Math.max(1, Math.round(validDays) || 1));
+  const doc: PiDocument = {
+    lang,
+    number: quotationNumber,
+    date: today,
+    validUntil,
+    validDays: Math.max(1, Math.round(validDays) || 1),
+    seller,
+    logoUrl,
+    stampImage: config.stampImage,
+    buyer: { company: clientCompany.trim(), name: clientName.trim(), contact: clientContact.trim(), address: clientAddress.trim(), destination: destination.trim() },
+    incoterm,
+    portOfLoading: portOfLoading.trim(),
+    portOfDischarge: portOfDischarge.trim(),
+    payment: paymentTerms.trim(),
+    deliveryTime: deliveryTime.trim(),
+    packing: packing.trim(),
+    items: lines,
+    subtotal,
+    freight: effFreight,
+    insurance: effInsurance,
+    discount,
+    total,
+    depositPercent,
+    bank,
+    remarks: remarks.trim(),
+    standardTerms: config.standardTerms
+  };
+
+  // Problems that block issuing, and things worth a second look.
+  const blockers: string[] = [];
+  if (!clientCompany.trim() && !clientName.trim()) blockers.push('填写客户公司或联系人');
+  if (items.length === 0) blockers.push('至少添加一个商品');
+  if (items.some(i => i.quantity <= 0 || i.unitPriceUsd <= 0)) blockers.push('每个商品的数量和单价都要大于 0');
+  const warnings: string[] = [];
+  if (lang !== 'bilingual') {
+    const fields: [string, string][] = [
+      ['客户公司', clientCompany],
+      ['联系人', clientName],
+      ['客户地址', clientAddress],
+      ['目的地', countryForDocument(destination, lang)],
+      ['起运港', portOfLoading],
+      ['目的港', portOfDischarge],
+      ['付款方式', paymentTerms],
+      ['交货期', deliveryTime],
+      ['包装', packing],
+      ['备注', remarks]
+    ];
+    const zhFields = fields.filter(([, v]) => hasChinese(v)).map(([k]) => k);
+    if (zhFields.length) warnings.push(`${zhFields.join('、')} 里有中文，会原样印在${LANG_OPTIONS.find(o => o.key === lang)?.label}报价单上`);
+    const zhItems = lines.filter(l => hasChinese(l.name) || hasChinese(l.spec) || hasChinese(l.model)).map(l => l.model);
+    if (zhItems.length) warnings.push(`${zhItems.join('、')} 的名称、型号或规格里有中文，可在下方商品里改名称和规格，或到商品管理补充翻译和英文型号`);
+  }
+  if (term.freight && items.length > 0 && freight <= 0) warnings.push(`${incoterm} 需要报海运费，目前是 0`);
+  if (term.toDestination && !portOfDischarge.trim()) warnings.push(`${incoterm} 要写目的港`);
+  if (!configLoading && !configSaved) warnings.push('公司名称、地址还没在「报价单设置」里确认，现在印的是系统默认值');
+
+  // ---------------------------------------------------------------------------
+  // Issue / download / print
+  // ---------------------------------------------------------------------------
+  const savedItems = (): QuotationItem[] =>
+    items.map((i, idx) => ({
+      productId: i.productId,
+      productName: i.productName,
+      model: i.model,
+      name: lines[idx].name,
+      nameZh: lines[idx].nameZh,
+      spec: lines[idx].spec,
+      specZh: lines[idx].specZh,
+      unitPriceUsd: i.unitPriceUsd,
+      quantity: i.quantity,
+      unit: i.unit,
+      amountUsd: lines[idx].amountUsd
+    }));
+
+  const issue = async (): Promise<{ alreadyIssued: boolean; crmSynced: boolean } | null> => {
+    if (blockers.length) {
+      onShowToast(`还不能开具：${blockers.join('；')}`);
+      return null;
+    }
     try {
       const res = await adminApi.issueQuotation({
         quotationNumber,
         leadId: linkedLeadId || undefined,
-        clientName: clientName.trim(),
+        clientName: clientName.trim() || clientCompany.trim(),
         clientCompany: clientCompany.trim(),
-        clientCountry: clientCountry.trim(),
-        date: new Date().toLocaleDateString(),
-        validUntil: validDays,
-        portOfLoading,
-        paymentTerms,
-        currency: 'USD ($)',
-        items,
-        totalAmountUsd,
-        lang: quotationLang,
-        notes: 'Prices are based on FOB Guangzhou Huangpu Port terms including standard export wooden pallet packing.'
+        clientCountry: countryForDocument(destination, lang),
+        date: today,
+        validUntil,
+        portOfLoading: doc.portOfLoading,
+        paymentTerms: doc.payment,
+        currency: 'USD',
+        items: savedItems(),
+        totalAmountUsd: total,
+        notes: doc.remarks,
+        lang,
+        details: {
+          incoterm,
+          portOfDischarge: doc.portOfDischarge,
+          deliveryTime: doc.deliveryTime,
+          packing: doc.packing,
+          clientContact: doc.buyer.contact,
+          clientAddress: doc.buyer.address,
+          subtotalUsd: subtotal,
+          freightUsd: effFreight,
+          insuranceUsd: effInsurance,
+          discountUsd: discount,
+          depositPercent,
+          standardTerms: config.standardTerms,
+          seller,
+          ...(bank ? { bank } : {})
+        }
       });
       if (res.crmSynced) onRefreshData?.();
       return res;
@@ -168,372 +400,134 @@ export const QuotationView: React.FC<QuotationViewProps> = ({
     }
   };
 
-  /** After a quotation has been issued, prepare a fresh PI number for the next one. */
-  const startNextQuotation = () => {
-    setQuotationNumber(generateQuotationNumber());
+  const pdfName = (company: string, number: string) =>
+    `Proforma_Invoice_${(company || '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'Client'}_${number}.pdf`;
+
+  /** Renders, downloads once, and keeps the file for "download again" / "open". */
+  const downloadPdf = async (sheet: HTMLElement, number: string, company: string) => {
+    const blob = await renderPdf(sheet, number);
+    const filename = pdfName(company, number);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 1000);
+    setLastPdf({ url, filename, sizeKb: Math.max(1, Math.round(blob.size / 1024)), time: new Date().toLocaleTimeString() });
+    return filename;
   };
 
-  const handleAddItem = () => {
-    const p = products.find(prod => prod.id === selectedProductId);
-    if (!p) return;
-
-    if (addItemUnitPrice <= 0) {
-      onShowToast(`「${p.model}」没有标价，请先填写单价`);
-      return;
-    }
-
-    const safeQty = Math.max(1, Math.floor(Number(addItemQty) || 1));
-    const safeUnitPrice = Math.max(0.01, Number(addItemUnitPrice) || 0.01);
-    const safeAmount = Math.round(safeUnitPrice * safeQty * 100) / 100;
-
-    const newItem: QuotationItem = {
-      productId: p.id,
-      productName: p.customName || `${p.model} (${getProductCategories().find(c => c.id === p.type)?.name.zh || '道路养护产品'})`,
-      model: p.model,
-      unitPriceUsd: safeUnitPrice,
-      quantity: safeQty,
-      unit: addItemUnit || (p.type === 'material' ? 'Ton' : 'Set'),
-      amountUsd: safeAmount
-    };
-
-    setItems([...items, newItem]);
-    onShowToast(`已添加 ${p.model}，${safeQty} ${newItem.unit}`);
-  };
-
-  const handleRemoveItem = (index: number) => {
-    setItems(items.filter((_, idx) => idx !== index));
-  };
-
-  const handleDownloadPdf = async () => {
-    if (!quotationSheetRef.current || isGeneratingPdf) return;
-    setIsGeneratingPdf(true);
-    onShowToast(`正在生成 ${quotationNumber} 的 PDF…`);
-
-    const piNumber = quotationNumber;
-    const issued = await issueCurrentQuotation();
+  const handleDownload = async () => {
+    if (!outputRef.current || busy) return;
+    setBusy(true);
+    const number = quotationNumber;
+    const issued = await issue();
     if (!issued) {
-      setIsGeneratingPdf(false);
+      setBusy(false);
       return;
     }
-
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf')
-      ]);
-
-      const element = quotationSheetRef.current;
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
-        onclone: (clonedDoc) => {
-          normalizeClonedColorsForHtml2Canvas(clonedDoc, 'quotation-sheet-paper');
-        }
-      });
-
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
-        heightLeft -= pdfHeight;
-      }
-
-      // ASCII only: some browsers save a non-ASCII download name as "download" with no extension.
-      const cleanCompany = (clientCompany || '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'Client';
-      const filename = `Proforma_Invoice_${cleanCompany}_${piNumber}.pdf`;
-
-      // Generate standard binary Blob
-      const pdfBlob = pdf.output('blob');
-      const blobUrl = URL.createObjectURL(pdfBlob);
-      const sizeKb = Math.max(1, Math.round(pdfBlob.size / 1024));
-
-      // Trigger automatic file download via native anchor
-      const downloadLink = document.createElement('a');
-      downloadLink.href = blobUrl;
-      downloadLink.download = filename;
-      downloadLink.style.display = 'none';
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-
-      // Clean up link after delay
-      setTimeout(() => {
-        if (document.body.contains(downloadLink)) {
-          document.body.removeChild(downloadLink);
-        }
-      }, 5000);
-
-      // Also trigger jsPDF internal save as dual assurance
-      try {
-        pdf.save(filename);
-      } catch {
-        // Ignored if handled by blob link
-      }
-
-      adminApi.addAuditLog(
-        '下载报价单 PDF',
-        filename,
-        `报价单 ${piNumber}｜客户 ${clientCompany || '-'}｜金额 $${totalAmountUsd.toLocaleString()}`
-      );
-
-      // Record download state for user quick-access bar
-      setLastDownloadedPdf({
-        url: blobUrl,
-        filename,
-        sizeKb,
-        timestamp: new Date().toLocaleTimeString()
-      });
-
+      const filename = await downloadPdf(outputRef.current, number, clientCompany || clientName);
+      adminApi.addAuditLog('下载报价单 PDF', filename, `报价单 ${number}｜客户 ${clientCompany || clientName}｜金额 $${money(total)}`);
       onShowToast(
         issued.alreadyIssued
           ? `已重新下载 ${filename}（这个单号之前开过，不会重复更新线索）`
           : issued.crmSynced
-          ? `已开具 ${filename}，线索 ${linkedLeadId} 已更新为「已报价」，估值 $${totalAmountUsd.toLocaleString()}`
+          ? `已开具 ${filename}，关联线索已更新为「已报价」，估值 $${money(total)}`
           : `已开具 ${filename}`
       );
-      startNextQuotation();
     } catch (err) {
-      console.error('Failed to export PDF directly:', err);
-      onShowToast('浏览器拦截了下载，已改用打印：请在打印窗口选择「另存为 PDF」');
-      // The quotation is already issued above; the print fallback must not issue it again.
-      printQuotationSheet(piNumber);
-      startNextQuotation();
+      console.error('PDF export failed:', err);
+      onShowToast('生成 PDF 失败，已改用打印：在打印窗口选「另存为 PDF」');
+      printSheet(outputRef.current, pdfName(clientCompany || clientName, number).replace(/\.pdf$/, ''));
     } finally {
-      setIsGeneratingPdf(false);
+      setQuotationNumber(generateQuotationNumber());
+      setBusy(false);
     }
   };
 
   const handlePrint = async () => {
-    if (!quotationSheetRef.current || isGeneratingPdf) return;
-    const piNumber = quotationNumber;
-    const issued = await issueCurrentQuotation();
+    if (!outputRef.current || busy) return;
+    const number = quotationNumber;
+    const issued = await issue();
     if (!issued) return;
-    printQuotationSheet(piNumber);
-    startNextQuotation();
+    printSheet(outputRef.current, pdfName(clientCompany || clientName, number).replace(/\.pdf$/, ''));
+    adminApi.addAuditLog('打印报价单', number, `客户 ${clientCompany || clientName}｜金额 $${money(total)}`);
+    onShowToast('在打印窗口把打印机选为「另存为 PDF」，得到的是可复制文字的 PDF');
+    setQuotationNumber(generateQuotationNumber());
   };
 
-  const printQuotationSheet = (piNumber: string) => {
-    onShowToast('打印窗口打开后，目标打印机选「另存为 PDF」即可保存');
-    adminApi.addAuditLog('打印报价单', piNumber, `客户 ${clientCompany || '-'}｜金额 $${totalAmountUsd.toLocaleString()}`);
-
-    const element = quotationSheetRef.current;
-    if (!element) {
-      window.print();
-      return;
-    }
-
+  // Re-download / reprint an issued quotation exactly as it was issued.
+  const viewingDoc = viewing
+    ? documentFromQuotation(viewing, config, { phone: contactCfg.hotlinePhone || '', email: contactCfg.officialEmail || '' }, logoUrl)
+    : null;
+  const historyDownload = async () => {
+    if (!viewing || !historyOutputRef.current || busy) return;
+    setBusy(true);
     try {
-      // Create hidden iframe to print ONLY the quotation sheet paper with pristine styling
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
-
-      const frameDoc = iframe.contentWindow?.document;
-      if (frameDoc) {
-        frameDoc.open();
-        frameDoc.write(`
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <meta charset="utf-8" />
-              <title>Proforma_Invoice_${(clientCompany || 'Client').replace(/[^a-zA-Z0-9_]/g, '_')}_${piNumber}</title>
-              <style>
-                * { box-sizing: border-box; }
-                body {
-                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                  margin: 0;
-                  padding: 10mm 15mm;
-                  color: #111827;
-                  background: #ffffff;
-                  font-size: 12px;
-                }
-                table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-                th { text-align: left; padding: 8px 4px; border-bottom: 2px solid #111827; font-size: 11px; font-weight: 700; }
-                td { padding: 8px 4px; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
-                .block { display: block; }
-                .text-center { text-align: center; }
-                .text-right { text-align: right; }
-                .font-sign { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-                .font-bold { font-weight: 700; }
-                .font-semibold { font-weight: 600; }
-                .border-b-2 { border-bottom: 2px solid #111827; }
-                .border-b { border-bottom: 1px solid #e5e7eb; }
-                .border-t-2 { border-top: 2px solid #111827; }
-                .border-t { border-top: 1px solid #e5e7eb; }
-                .flex { display: flex; }
-                .justify-between { justify-content: space-between; }
-                .items-center { align-items: center; }
-                .grid { display: grid; }
-                .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-                .gap-6 { gap: 24px; }
-                .gap-8 { gap: 32px; }
-                .print\\:hidden, .action-cell { display: none !important; }
-                @page { size: A4 portrait; margin: 8mm; }
-              </style>
-            </head>
-            <body>
-              ${element.innerHTML}
-            </body>
-          </html>
-        `);
-        frameDoc.close();
-
-        setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => {
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 3000);
-        }, 350);
-      } else {
-        window.print();
-      }
-    } catch {
-      window.print();
+      const filename = await downloadPdf(historyOutputRef.current, viewing.quotationNumber, viewing.clientCompany || viewing.clientName);
+      adminApi.addAuditLog('重新下载报价单 PDF', filename, `报价单 ${viewing.quotationNumber}｜客户 ${viewing.clientCompany || viewing.clientName}`);
+      onShowToast(`已下载 ${filename}`);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      onShowToast('生成 PDF 失败，请改用打印');
+    } finally {
+      setBusy(false);
     }
   };
+  const historyPrint = () => {
+    if (!viewing || !historyOutputRef.current) return;
+    printSheet(historyOutputRef.current, pdfName(viewing.clientCompany || viewing.clientName, viewing.quotationNumber).replace(/\.pdf$/, ''));
+    adminApi.addAuditLog('打印报价单', viewing.quotationNumber, `重新打印｜客户 ${viewing.clientCompany || viewing.clientName}`);
+  };
 
-  // Multilingual labels for Proforma Invoice
-  const textMap = {
-    en: {
-      title: 'PROFORMA INVOICE',
-      dept: 'International Trade Department',
-      billTo: 'CUSTOMER / BILL TO:',
-      terms: 'TRADE & PAYMENT TERMS:',
-      itemCol: 'ITEM / DESCRIPTION',
-      modelCol: 'MODEL',
-      qtyCol: 'QTY',
-      priceCol: 'UNIT PRICE (USD)',
-      totalCol: 'TOTAL AMOUNT (USD)',
-      subtotal: 'FOB Subtotal:',
-      packaging: 'Standard Export Packaging:',
-      totalFob: 'TOTAL FOB AMOUNT (USD):',
-      remarks: 'REMARKS & BANK COORDINATES:',
-      signature: 'AUTHORIZED SIGNATURE & STAMP'
-    },
-    bilingual: {
-      title: 'PROFORMA INVOICE / 形式发票报价单',
-      dept: '国际贸易部 · International Trade Department',
-      billTo: 'CUSTOMER / 买方企业:',
-      terms: 'TRADE & PAYMENT TERMS / 贸易与支付条款:',
-      itemCol: 'ITEM / 货物名称描述',
-      modelCol: 'MODEL / 型号',
-      qtyCol: 'QTY / 数量',
-      priceCol: 'UNIT PRICE / 单价 (USD)',
-      totalCol: 'TOTAL / 金额 (USD)',
-      subtotal: 'FOB 小计:',
-      packaging: '出口免熏蒸包装:',
-      totalFob: 'FOB 离岸总额 (USD):',
-      remarks: 'REMARKS & BANK / 备注与银行信息:',
-      signature: '授权签署与印章 / AUTHORIZED STAMP'
-    },
-    ar: {
-      title: 'فاتورة أولية (PROFORMA INVOICE)',
-      dept: 'قسم التجارة الدولية · الصادرات',
-      billTo: 'العميل / المستورد (BILL TO):',
-      terms: 'شروط الشحن والدفع (TERMS):',
-      itemCol: 'بيان البضاعة والمواصفات',
-      modelCol: 'الموديل',
-      qtyCol: 'الكمية',
-      priceCol: 'سعر الوحدة (USD)',
-      totalCol: 'الإجمالي (USD)',
-      subtotal: 'إجمالي FOB:',
-      packaging: 'تغليف التصدير القياسي:',
-      totalFob: 'إجمالي القيمة FOB (USD):',
-      remarks: 'الملاحظات والبيانات البنكية:',
-      signature: 'التوقيع والختم المعتمد'
-    },
-    ru: {
-      title: 'ПРОФОРМА-ИНВОЙС (PROFORMA INVOICE)',
-      dept: 'Отдел международной торговли',
-      billTo: 'ПОКУПАТЕЛЬ / КОМПАНИЯ:',
-      terms: 'УСЛОВИЯ ПОСТАВКИ И ОПЛАТЫ:',
-      itemCol: 'НАИМЕНОВАНИЕ ТОВАРА',
-      modelCol: 'МОДЕЛЬ',
-      qtyCol: 'КОЛ-ВО',
-      priceCol: 'ЦЕНА ЗА ЕД. (USD)',
-      totalCol: 'СУММА (USD)',
-      subtotal: 'Подытог FOB:',
-      packaging: 'Экспортная упаковка:',
-      totalFob: 'ИТОГО FOB (USD):',
-      remarks: 'РЕКВИЗИТЫ И ПРИМЕЧАНИЯ:',
-      signature: 'ПОДПИСЬ И ПЕЧАТЬ'
-    }
-  }[quotationLang];
-
-  const langOptions: { key: QuotationLang; label: string }[] = [
-    { key: 'bilingual', label: '中英' },
-    { key: 'en', label: 'English' },
-    { key: 'ar', label: 'العربية' },
-    { key: 'ru', label: 'Русский' }
-  ];
-  const canIssue = items.length > 0 && clientCompany.trim().length > 0;
+  const canIssue = blockers.length === 0;
+  const terms = (label: string, value: string, set: (v: string) => void, placeholder?: string) => (
+    <FormField label={label}>
+      <input type="text" value={value} onChange={e => touch(set)(e.target.value)} placeholder={placeholder} className="field field-sm" />
+    </FormField>
+  );
 
   return (
     <div className="adm-page">
       <PageHeader
         title="报价单"
-        description="填写客户和条款，添加商品，右侧实时预览。开具时自动保存，并更新关联线索的估值和阶段。"
+        description="填写客户和条款，添加商品，右侧就是客户收到的样子。开具时自动保存，并更新关联线索的估值和阶段。"
         actions={
           <>
-            <button onClick={handlePrint} disabled={isGeneratingPdf || !canIssue} className="btn btn-sm btn-outline">
-              <Printer className="w-4 h-4" />
-              打印
+            <button type="button" onClick={() => setSettingsOpen(true)} className="btn btn-sm btn-ghost">
+              <Settings2 className="w-4 h-4" />
+              报价单设置
             </button>
-            <button onClick={handleDownloadPdf} disabled={isGeneratingPdf || !canIssue} className="btn btn-sm btn-primary">
-              {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              {isGeneratingPdf ? '正在生成…' : '开具并下载 PDF'}
+            <button type="button" onClick={handlePrint} disabled={busy || !canIssue} className="btn btn-sm btn-outline">
+              <Printer className="w-4 h-4" />
+              开具并打印
+            </button>
+            <button type="button" onClick={handleDownload} disabled={busy || !canIssue} className="btn btn-sm btn-primary">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {busy ? '正在生成…' : '开具并下载 PDF'}
             </button>
           </>
         }
       />
 
-      {lastDownloadedPdf && (
+      {lastPdf && (
         <div className="anim-pop mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
           <span className="flex items-center gap-2.5 min-w-0">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
             <span className="truncate">
-              <strong className="font-semibold">{lastDownloadedPdf.filename}</strong>
-              <span className="text-emerald-800">　{lastDownloadedPdf.sizeKb} KB，{lastDownloadedPdf.timestamp}</span>
+              <strong className="font-semibold">{lastPdf.filename}</strong>
+              <span className="text-emerald-800">　{lastPdf.sizeKb} KB，{lastPdf.time}</span>
             </span>
           </span>
           <span className="flex items-center gap-2 shrink-0">
-            <a href={lastDownloadedPdf.url} download={lastDownloadedPdf.filename} className="btn btn-sm bg-emerald-700 text-white hover:bg-emerald-800">
+            <a href={lastPdf.url} download={lastPdf.filename} className="btn btn-sm bg-emerald-700 text-white hover:bg-emerald-800">
               <Download className="w-4 h-4" />
               再次下载
             </a>
-            <a href={lastDownloadedPdf.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
+            <a href={lastPdf.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline">
               <ExternalLink className="w-4 h-4" />
               打开
             </a>
@@ -541,32 +535,39 @@ export const QuotationView: React.FC<QuotationViewProps> = ({
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)] items-start">
+      <div className="grid gap-5 xl:grid-cols-[400px_minmax(0,1fr)] items-start">
         {/* Editor */}
-        <div className="space-y-4 xl:sticky xl:top-6">
+        <div className="space-y-4">
           <Panel title="客户">
             <div className="space-y-4">
               <FormField label="从线索带入" hint={linkedLeadId ? '开具后，这条线索的估值和阶段会自动更新。' : '可选。关联后会自动填写客户信息。'}>
-                <select value={linkedLeadId} onChange={e => handlePrefillFromLead(e.target.value)} className="field field-sm">
+                <select value={linkedLeadId} onChange={e => handleLeadSelect(e.target.value)} className="field field-sm">
                   <option value="">{linkedLeadId ? '不关联线索' : '选择线索…'}</option>
                   {leads.map(l => (
                     <option key={l.id} value={l.id}>
-                      {l.customerName}（{l.location || l.id}）
+                      {l.customerName}
+                      {l.company ? ` · ${l.company}` : ''}（{l.location || l.id}）
                     </option>
                   ))}
                 </select>
               </FormField>
-              <FormField label="客户公司">
-                <input type="text" value={clientCompany} onChange={e => setClientCompany(e.target.value)} placeholder="必填" className="field field-sm" />
+              <FormField label="客户公司" hint="按客户营业执照上的名称填写，没有可留空。">
+                <input type="text" value={clientCompany} onChange={e => setClientCompany(e.target.value)} className="field field-sm" />
               </FormField>
               <div className="grid grid-cols-2 gap-3">
                 <FormField label="联系人">
                   <input type="text" value={clientName} onChange={e => setClientName(e.target.value)} className="field field-sm" />
                 </FormField>
-                <FormField label="目的国">
-                  <input type="text" value={clientCountry} onChange={e => setClientCountry(e.target.value)} className="field field-sm" />
+                <FormField label="电话 / WhatsApp / 邮箱">
+                  <input type="text" value={clientContact} onChange={e => setClientContact(e.target.value)} className="field field-sm" />
                 </FormField>
               </div>
+              <FormField label="客户地址">
+                <input type="text" value={clientAddress} onChange={e => setClientAddress(e.target.value)} className="field field-sm" />
+              </FormField>
+              <FormField label="目的地（国家 / 城市）">
+                <input type="text" value={destination} onChange={e => setDestination(e.target.value)} placeholder="United Arab Emirates" className="field field-sm" />
+              </FormField>
             </div>
           </Panel>
 
@@ -574,29 +575,46 @@ export const QuotationView: React.FC<QuotationViewProps> = ({
             <div className="space-y-4">
               <FormField label="单据语言">
                 <div className="segmented w-full" role="group" aria-label="单据语言">
-                  {langOptions.map(o => (
-                    <button key={o.key} className="flex-1" aria-pressed={quotationLang === o.key} onClick={() => setQuotationLang(o.key)} type="button">
+                  {LANG_OPTIONS.map(o => (
+                    <button key={o.key} className="flex-1" aria-pressed={lang === o.key} onClick={() => setLang(o.key)} type="button">
                       {o.label}
                     </button>
                   ))}
                 </div>
               </FormField>
-              <FormField label="价格条款（起运港）">
-                <input type="text" value={portOfLoading} onChange={e => setPortOfLoading(e.target.value)} className="field field-sm" />
-              </FormField>
-              <FormField label="付款方式">
-                <input type="text" value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)} className="field field-sm" />
-              </FormField>
-              <FormField label="有效期">
-                <input type="text" value={validDays} onChange={e => setValidDays(e.target.value)} className="field field-sm" />
-              </FormField>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="价格条款">
+                  <select value={incoterm} onChange={e => touch(setIncoterm)(e.target.value)} className="field field-sm">
+                    {INCOTERMS.map(i => (
+                      <option key={i.key} value={i.key}>
+                        {i.key}（{i.zh}）
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField label="有效天数">
+                  <input type="number" min={1} max={365} value={validDays} onChange={e => touch(setValidDays)(num(e.target.value, 1))} className="field field-sm font-sign" />
+                </FormField>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {terms('起运港', portOfLoading, setPortOfLoading, 'Guangzhou, China')}
+                {terms(term.toDestination ? '目的港（必填）' : '目的港', portOfDischarge, setPortOfDischarge, 'Jebel Ali, UAE')}
+              </div>
+              {terms('付款方式', paymentTerms, setPaymentTerms)}
+              <div className="grid grid-cols-[1fr_7rem] gap-3">
+                {terms('交货期', deliveryTime, setDeliveryTime)}
+                <FormField label="定金 %">
+                  <input type="number" min={0} max={100} value={depositPercent} onChange={e => touch(setDepositPercent)(Math.min(100, num(e.target.value)))} className="field field-sm font-sign" />
+                </FormField>
+              </div>
+              {terms('包装', packing, setPacking)}
             </div>
           </Panel>
 
-          <Panel title="添加商品">
+          <Panel title="商品">
             <div className="space-y-4">
-              <FormField label="商品">
-                <select value={selectedProductId} onChange={e => handleSelectProductChange(e.target.value)} className="field field-sm">
+              <FormField label="选择商品">
+                <select value={selectedProductId} onChange={e => selectProduct(e.target.value)} className="field field-sm">
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
                       {p.customName || p.model}（{p.price}）
@@ -606,248 +624,183 @@ export const QuotationView: React.FC<QuotationViewProps> = ({
               </FormField>
               <div className="grid grid-cols-3 gap-3">
                 <FormField label="单价 $">
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={addItemUnitPrice || ''}
-                    onChange={e => setAddItemUnitPrice(Math.max(0, parseFloat(e.target.value) || 0))}
-                    placeholder="面议"
-                    className="field field-sm font-sign"
-                  />
+                  <input type="number" min="0.01" step="0.01" value={addPrice} onChange={e => setAddPrice(e.target.value)} placeholder="面议" className="field field-sm font-sign" />
                 </FormField>
                 <FormField label="数量">
-                  <input
-                    type="number"
-                    min="1"
-                    value={addItemQty}
-                    onChange={e => setAddItemQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
-                    className="field field-sm font-sign"
-                  />
+                  <input type="number" min="0.001" step="any" value={addQty} onChange={e => setAddQty(e.target.value)} className="field field-sm font-sign" />
                 </FormField>
                 <FormField label="单位">
-                  <select value={addItemUnit} onChange={e => setAddItemUnit(e.target.value)} className="field field-sm">
-                    <option value="Ton">吨</option>
-                    <option value="Roll">卷</option>
-                    <option value="Meter">米</option>
-                    <option value="Drum">桶</option>
-                    <option value="Bucket">提</option>
-                    <option value="Set">台/套</option>
-                    <option value="Unit">件</option>
-                    <option value="Box">箱</option>
+                  <select value={addUnit} onChange={e => setAddUnit(e.target.value)} className="field field-sm">
+                    {PI_UNITS.map(u => (
+                      <option key={u.key} value={u.key}>
+                        {u.label.zh}
+                      </option>
+                    ))}
                   </select>
                 </FormField>
               </div>
-              <button type="button" onClick={handleAddItem} className="btn btn-sm btn-dark w-full">
+              <button type="button" onClick={addItem} className="btn btn-sm btn-dark w-full">
                 <Plus className="w-4 h-4" />
                 加入报价单
-                {addItemUnitPrice > 0 && (
-                  <span className="font-sign text-white/70">${(Math.round(addItemUnitPrice * addItemQty * 100) / 100).toLocaleString()}</span>
-                )}
               </button>
+
+              {items.length > 0 && (
+                <ol className="space-y-2.5 border-t border-line pt-4" aria-label="报价单商品">
+                  {items.map((item, idx) => (
+                    <li key={item.key} className="rounded-lg border border-line bg-white p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-night truncate">
+                            {idx + 1}. {item.productName}
+                          </div>
+                          <div className="font-sign text-xs text-slate-500">{item.model}</div>
+                        </div>
+                        <div className="flex shrink-0 items-center">
+                          <button type="button" onClick={() => moveItem(idx, -1)} disabled={idx === 0} className="icon-btn !w-7 !h-7" aria-label="上移">
+                            ↑
+                          </button>
+                          <button type="button" onClick={() => moveItem(idx, 1)} disabled={idx === items.length - 1} className="icon-btn !w-7 !h-7" aria-label="下移">
+                            ↓
+                          </button>
+                          <button type="button" onClick={() => removeItem(item.key)} className="icon-btn danger !w-7 !h-7" aria-label={`移除 ${item.model}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-[1fr_1fr_5.5rem] gap-2">
+                        <label className="block">
+                          <span className="sr-only">单价</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.unitPriceUsd || ''}
+                            onChange={e => updateItem(item.key, { unitPriceUsd: round2(num(e.target.value)) })}
+                            className="field field-sm font-sign"
+                            aria-label={`${item.model} 单价`}
+                          />
+                        </label>
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={item.quantity || ''}
+                          onChange={e => updateItem(item.key, { quantity: Math.round(num(e.target.value) * 1000) / 1000 })}
+                          className="field field-sm font-sign"
+                          aria-label={`${item.model} 数量`}
+                        />
+                        <select value={item.unit} onChange={e => updateItem(item.key, { unit: e.target.value })} className="field field-sm" aria-label={`${item.model} 单位`}>
+                          {PI_UNITS.map(u => (
+                            <option key={u.key} value={u.key}>
+                              {u.label.zh}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <details className="mt-2 group">
+                        <summary className="cursor-pointer text-xs text-sky-800 select-none">
+                          修改印在单据上的名称和规格{item.nameOverride !== undefined || item.specOverride !== undefined ? '（已修改）' : ''}
+                        </summary>
+                        <div className="mt-2 space-y-2">
+                          <input
+                            type="text"
+                            value={lines[idx]?.name || ''}
+                            onChange={e => updateItem(item.key, { nameOverride: e.target.value })}
+                            className="field field-sm"
+                            aria-label="单据上的名称"
+                          />
+                          <textarea
+                            value={lines[idx]?.spec || ''}
+                            onChange={e => updateItem(item.key, { specOverride: e.target.value })}
+                            rows={2}
+                            className="field field-sm resize-y"
+                            aria-label="单据上的规格"
+                          />
+                          {(item.nameOverride !== undefined || item.specOverride !== undefined) && (
+                            <button type="button" onClick={() => updateItem(item.key, { nameOverride: undefined, specOverride: undefined })} className="text-xs text-slate-500 underline">
+                              恢复为商品资料
+                            </button>
+                          )}
+                        </div>
+                      </details>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </Panel>
+
+          <Panel title="费用与备注">
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <FormField label="海运费 $">
+                  <input type="number" min={0} step="0.01" value={term.freight ? freight || '' : ''} disabled={!term.freight} onChange={e => setFreight(round2(num(e.target.value)))} placeholder={term.freight ? '0' : '不适用'} className="field field-sm font-sign" />
+                </FormField>
+                <FormField label="保险费 $">
+                  <input type="number" min={0} step="0.01" value={term.insurance ? insurance || '' : ''} disabled={!term.insurance} onChange={e => setInsurance(round2(num(e.target.value)))} placeholder={term.insurance ? '0' : '不适用'} className="field field-sm font-sign" />
+                </FormField>
+                <FormField label="折扣 $">
+                  <input type="number" min={0} step="0.01" value={discount || ''} onChange={e => setDiscount(round2(num(e.target.value)))} placeholder="0" className="field field-sm font-sign" />
+                </FormField>
+              </div>
+              <FormField label="备注" hint={config.standardTerms ? '「报价单设置」里的标准条款会自动附在后面。' : undefined}>
+                <textarea value={remarks} onChange={e => setRemarks(e.target.value)} rows={3} className="field field-sm resize-y" placeholder="例如：Price based on full container load." />
+              </FormField>
             </div>
           </Panel>
 
           {!billingLoading && !billingReady && (
-            <div className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-3 text-[13px] text-amber-950">
+            <p className="flex items-start gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-3 text-[13px] text-amber-950">
               <span className="mt-1 w-2 h-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
-              <span>
-                还没有设置收款账户，报价单上会写「银行信息另行提供」。超级管理员可在「经营概览」页底部填写。
-              </span>
-            </div>
+              还没有设置收款账户，报价单上会写「银行信息另行提供」。超级管理员可在「经营概览」页底部填写。
+            </p>
           )}
-          <p className="text-[13px] text-slate-500 leading-relaxed px-1">
-            浏览器拦截下载时会自动改用打印，在打印窗口把目标打印机选为「另存为 PDF」即可。同一个单号只会开具一次。
-          </p>
         </div>
 
-        {/* Paper preview */}
-        <div className="min-w-0">
-          <div className="flex items-center justify-between gap-3 mb-2 px-1 text-[13px] text-slate-500">
-            <span>
-              预览　<span className="font-sign text-night">{quotationNumber}</span>
+        {/* Preview */}
+        <div className="min-w-0 xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1 text-[13px] text-slate-500">
+            <span className="flex items-center gap-1.5">
+              预览 <span className="font-sign text-night">{quotationNumber}</span>
+              <button type="button" onClick={() => setQuotationNumber(generateQuotationNumber())} className="text-sky-700 p-0.5" title="换一个单号" aria-label="换一个单号">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
             </span>
             <span>
-              合计 <span className="font-sign font-semibold text-night">${totalAmountUsd.toLocaleString()}</span>
+              合计 <span className="font-sign font-semibold text-night">${money(total)}</span>
             </span>
           </div>
-          <div className="overflow-x-auto rounded-xl bg-[#dfe5ea] p-3 sm:p-6">
-            <div
-              ref={quotationSheetRef}
-              id="quotation-sheet-paper"
-              className="mx-auto min-w-[720px] max-w-[880px] p-10 sm:p-12 bg-[#ffffff] text-[#111827] shadow-[0_10px_30px_-12px_rgba(15,37,54,0.35)] print:shadow-none print:p-0"
-            >
-              {/* Header */}
-              <div className="flex justify-between items-start gap-6 border-b-2 border-[#111827] pb-6">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2.5 mb-1.5">
-                    <span className="w-8 h-8 shrink-0 rounded-md bg-[#38bdf8] text-[#0f2536] font-bold text-[11px] flex items-center justify-center">LYM</span>
-                    <span className="text-[15px] font-bold leading-snug text-[#111827]">GUANGZHOU LUYIMEI ENGINEERING EQUIPMENT CO., LTD.</span>
-                  </div>
-                  <p className="text-xs text-[#6b7280] leading-normal">
-                    广州路易美工程设备有限公司　{textMap.dept}
-                    <br />
-                    Huangpu District, Guangzhou, Guangdong, China
-                    <br />
-                    Email: {contactCfg.officialEmail || 'business@luyimei.com'}
-                    {waConfigured ? `　WhatsApp: ${contactCfg.whatsappDisplay}` : ''}
-                    {contactCfg.hotlinePhone ? `　Tel: ${contactCfg.hotlinePhone}` : ''}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <h2 className="text-base font-black leading-snug text-[#111827]">
-                    {textMap.title.split(' / ').map(part => (
-                      <span key={part} className="block whitespace-nowrap">
-                        {part}
-                      </span>
-                    ))}
-                  </h2>
-                  <div className="flex items-center justify-end gap-1.5 mt-1">
-                    <span className="font-sign text-xs text-[#4b5563]">PI NO: {quotationNumber}</span>
-                    <button type="button" onClick={handleRegenerateQuotationNumber} className="print:hidden text-[#0369a1] p-0.5" title="换一个单号" aria-label="换一个单号">
-                      <RefreshCw className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <span className="font-sign text-xs text-[#4b5563] block">DATE: {new Date().toLocaleDateString()}</span>
-                </div>
-              </div>
-
-              {/* Bill To & Terms */}
-              <div className="grid grid-cols-2 gap-8 my-6 text-xs border-b border-[#e5e7eb] pb-6">
-                <div>
-                  <span className="font-bold text-[#9ca3af] block mb-1">{textMap.billTo}</span>
-                  <strong className="text-sm text-[#111827] block">{clientCompany || <span className="text-[#d1d5db] print:hidden">客户公司</span>}</strong>
-                  <span className="text-[#4b5563] block">Attn: {clientName}</span>
-                  <span className="text-[#4b5563] block">Country: {clientCountry}</span>
-                </div>
-                <div className="space-y-1">
-                  <span className="font-bold text-[#9ca3af] block mb-1">{textMap.terms}</span>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-[#6b7280] whitespace-nowrap">Price Term:</span>
-                    <strong className="text-[#1f2937] text-right">{portOfLoading}</strong>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-[#6b7280] whitespace-nowrap">Payment:</span>
-                    <strong className="text-[#1f2937] text-right">{paymentTerms}</strong>
-                  </div>
-                  <div className="flex justify-between gap-4">
-                    <span className="text-[#6b7280] whitespace-nowrap">Validity:</span>
-                    <strong className="text-[#1f2937] text-right">{validDays}</strong>
-                  </div>
-                </div>
-              </div>
-
-              {/* Line items */}
-              <table className="w-full text-left border-collapse text-xs my-6">
-                <thead>
-                  <tr className="border-b-2 border-[#111827] text-[11px] font-bold text-[#374151]">
-                    <th className="py-2.5">{textMap.itemCol}</th>
-                    <th className="py-2.5 text-center">{textMap.modelCol}</th>
-                    <th className="py-2.5 text-center">{textMap.qtyCol}</th>
-                    <th className="py-2.5 text-right">{textMap.priceCol}</th>
-                    <th className="py-2.5 text-right">{textMap.totalCol}</th>
-                    <th className="py-2.5 w-8 print:hidden action-cell" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#e5e7eb]">
-                  {items.length === 0 && (
-                    <tr className="print:hidden action-cell">
-                      <td colSpan={6} className="py-8 text-center text-[#9ca3af]">
-                        还没有商品。在左侧选择商品后点「加入报价单」。
-                      </td>
-                    </tr>
-                  )}
-                  {items.map((item, idx) => (
-                    <tr key={idx}>
-                      <td className="py-3 font-semibold text-[#111827]">{item.productName}</td>
-                      <td className="py-3 text-center font-sign text-[#374151]">{item.model}</td>
-                      <td className="py-3 text-center font-sign text-[#111827]">
-                        {item.quantity} {item.unit}
-                      </td>
-                      <td className="py-3 text-right font-sign text-[#374151]">${item.unitPriceUsd.toLocaleString()}</td>
-                      <td className="py-3 text-right font-sign font-bold text-[#111827]">${item.amountUsd.toLocaleString()}</td>
-                      <td className="py-3 text-right print:hidden action-cell">
-                        <button onClick={() => handleRemoveItem(idx)} className="text-[#9ca3af] hover:text-[#ef4444] p-1" title="移除" aria-label={`移除 ${item.model}`}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {/* Totals */}
-              <div className="flex justify-end pt-4 border-t-2 border-[#111827]">
-                <div className="w-72 space-y-2 text-xs">
-                  <div className="flex justify-between text-[#4b5563]">
-                    <span>{textMap.subtotal}</span>
-                    <span className="font-sign font-semibold text-[#111827]">${totalAmountUsd.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between text-[#4b5563]">
-                    <span>{textMap.packaging}</span>
-                    <span className="font-sign text-[#059669] font-medium">INCLUDED</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold border-t border-[#d1d5db] pt-2 text-[#111827]">
-                    <span>{textMap.totalFob}</span>
-                    <span className="font-sign text-[#047857] text-base">${totalAmountUsd.toLocaleString()} USD</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Remarks & signature */}
-              <div className="grid grid-cols-2 gap-8 mt-12 pt-8 border-t border-[#e5e7eb] text-[11px] text-[#6b7280]">
-                <div>
-                  <strong className="text-[#1f2937] block mb-1">{textMap.remarks}</strong>
-                  <p className="leading-relaxed">
-                    Standard sea freight export wooden crate packing.
-                    <br />
-                    {billingReady ? (
-                      <>
-                        Beneficiary: {billing.beneficiary}
-                        <br />
-                        Bank: {billing.bankName}
-                        {billing.bankAddress && (
-                          <>
-                            <br />
-                            Bank Address: {billing.bankAddress}
-                          </>
-                        )}
-                        <br />
-                        Account No.: <span className="font-sign">{billing.accountNumber}</span>
-                        {billing.swiftCode && (
-                          <>
-                            <br />
-                            SWIFT: <span className="font-sign">{billing.swiftCode}</span>
-                          </>
-                        )}
-                        {billing.remarks && (
-                          <>
-                            <br />
-                            {billing.remarks}
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <>Bank details will be provided separately upon order confirmation.</>
-                    )}
-                  </p>
-                </div>
-                <div className="flex flex-col justify-end text-right">
-                  <div className="w-48 border-b border-[#9ca3af] ml-auto mb-1" />
-                  <span className="font-medium text-[#374151]">{textMap.signature}</span>
-                </div>
-              </div>
-            </div>
+          {(blockers.length > 0 || warnings.length > 0) && (
+            <ul className="mb-3 space-y-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-950">
+              {blockers.map(b => (
+                <li key={b} className="flex gap-2">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+                  开具前请{b}
+                </li>
+              ))}
+              {warnings.map(w => (
+                <li key={w} className="flex gap-2">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+                  {w}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="rounded-xl bg-[#dfe5ea] p-3 sm:p-5">
+            <SheetPreview ref={outputRef} doc={doc} />
           </div>
+          <p className="mt-2 px-1 text-xs text-slate-500">
+            「开具并下载 PDF」直接下载文件；「开具并打印」在打印窗口选「另存为 PDF」得到可复制文字的 PDF。同一个单号只会开具一次。
+          </p>
         </div>
       </div>
 
       {/* Recently issued */}
-      <Panel title="最近开具" className="mt-6" bodyClassName="relative overflow-x-auto" actions={<span className="text-[13px] text-slate-500">最近 8 份</span>}>
+      <Panel title="最近开具" className="mt-6" bodyClassName="relative overflow-x-auto" actions={<span className="text-[13px] text-slate-500">最近 20 份</span>}>
         {recentQuotations.length === 0 ? (
-          <EmptyState icon={<FileText className="w-5 h-5" />} title="还没有开具过报价单" hint="开具后会保存在这里，同一单号不会重复保存。" />
+          <EmptyState icon={<FileText className="w-5 h-5" />} title="还没有开具过报价单" hint="开具后会保存在这里，可以随时重新下载。" />
         ) : (
-          <table className="tbl min-w-[720px]">
+          <table className="tbl min-w-[760px]">
             <thead>
               <tr>
                 <th>单号</th>
@@ -856,23 +809,58 @@ export const QuotationView: React.FC<QuotationViewProps> = ({
                 <th>关联线索</th>
                 <th>开具人</th>
                 <th>时间</th>
+                <th className="w-24" />
               </tr>
             </thead>
             <tbody>
-              {recentQuotations.slice(0, 8).map(q => (
+              {recentQuotations.slice(0, 20).map(q => (
                 <tr key={q.id}>
                   <td className="font-sign">{q.quotationNumber}</td>
                   <td>{q.clientCompany || q.clientName}</td>
-                  <td className="text-end font-sign font-semibold">${q.totalAmountUsd.toLocaleString()}</td>
+                  <td className="text-end font-sign font-semibold">{money(q.totalAmountUsd)}</td>
                   <td className="font-sign text-slate-500">{q.leadId || '—'}</td>
                   <td>{q.createdBy || '—'}</td>
                   <td className="font-sign text-[13px] text-slate-500">{q.createdAt ? formatDateTime(q.createdAt) : q.date}</td>
+                  <td className="text-end">
+                    <button type="button" onClick={() => setViewing(q)} className="btn btn-sm btn-ghost">
+                      <Eye className="w-4 h-4" />
+                      查看
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </Panel>
+
+      <QuotationSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} config={config} canEdit={isSuperAdmin} onSaved={onShowToast} />
+
+      <Modal
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        size="xl"
+        title={viewing ? `报价单 ${viewing.quotationNumber}` : ''}
+        description={viewing && !viewing.details ? '这是旧版报价单，公司信息按现在的设置显示。' : '按开具时的内容显示，不会重新开具，也不会更新线索。'}
+        footer={
+          <>
+            <button type="button" onClick={historyPrint} className="btn btn-sm btn-outline">
+              <Printer className="w-4 h-4" />
+              打印
+            </button>
+            <button type="button" onClick={historyDownload} disabled={busy} className="btn btn-sm btn-primary">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              下载 PDF
+            </button>
+          </>
+        }
+      >
+        {viewingDoc && (
+          <div className="rounded-lg bg-[#dfe5ea] p-3">
+            <SheetPreview ref={historyOutputRef} doc={viewingDoc} maxHeight={560} />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

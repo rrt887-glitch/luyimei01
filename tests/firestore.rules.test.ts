@@ -21,6 +21,8 @@ import {
   SITE_CONTACT_CONFIG_ALLOWED_KEYS,
   BILLING_CONFIG_ALLOWED_KEYS,
   CATEGORY_CONFIG_ALLOWED_KEYS,
+  QUOTATION_CONFIG_ALLOWED_KEYS,
+  sanitizeQuotationConfigForFirestore,
   QUOTATION_ALLOWED_KEYS,
   sanitizeQuotationForFirestore,
   sanitizeProductForFirestore,
@@ -122,6 +124,12 @@ describe('Firestore Rules, Blueprint & Sanitizer 3-Way Alignment', () => {
       entityName: 'BillingConfig' as const,
       validatorName: 'isValidBillingConfig',
       sanitizerKeys: BILLING_CONFIG_ALLOWED_KEYS
+    },
+    {
+      collection: 'site_config/quotation',
+      entityName: 'QuotationConfig' as const,
+      validatorName: 'isValidQuotationConfig',
+      sanitizerKeys: QUOTATION_CONFIG_ALLOWED_KEYS
     },
     {
       collection: 'site_config/categories',
@@ -464,6 +472,7 @@ describe('Write Path Payload Contract Verification (Every Collection Write Path)
       totalAmountUsd: 8400,
       notes: 'FOB',
       lang: 'bilingual',
+      details: { incoterm: 'CIF', portOfDischarge: 'Jebel Ali', freightUsd: 800, missing: undefined },
       createdBy: '销售甲',
       createdByUid: 'repA',
       createdAt: new Date().toISOString(),
@@ -477,6 +486,23 @@ describe('Write Path Payload Contract Verification (Every Collection Write Path)
     }
     expect(payload.customerId).toBeUndefined();
     expect(payload.items[0].extra).toBeUndefined();
+    expect(payload.details).toEqual({ incoterm: 'CIF', portOfDischarge: 'Jebel Ali', freightUsd: 800 });
+  });
+
+  it('10b. Quotation settings payload passes isValidQuotationConfig', () => {
+    const ruleFields = extractRuleValidatorFields('isValidQuotationConfig');
+    const payload = sanitizeQuotationConfigForFirestore({
+      companyNameEn: 'GUANGZHOU LUYIMEI ENGINEERING EQUIPMENT CO., LTD.',
+      stampImage: 'data:image/png;base64,AAAA',
+      defaultIncoterm: 'FOB',
+      defaultDepositPercent: 30,
+      defaultValidityDays: 30,
+      updatedAt: new Date().toISOString(),
+      unknownField: 'dropped'
+    });
+    for (const reqKey of ruleFields.required) expect(Object.keys(payload)).toContain(reqKey);
+    for (const k of Object.keys(payload)) expect(ruleFields.allowed).toContain(k);
+    expect(rulesContent).toContain("!(configId in ['billing', 'quotation']) || isActiveStaff()");
   });
 
   it('11. Inquiry payloads always carry the pool marker assignedStaffId', () => {

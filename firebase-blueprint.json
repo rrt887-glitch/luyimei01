@@ -711,7 +711,7 @@
         "items": {
           "type": "array",
           "maxItems": 100,
-          "description": "Line items (productId, productName, model, unitPriceUsd, quantity, unit, amountUsd)."
+          "description": "Line items (productId, productName, model, name, nameZh, spec, specZh, unitPriceUsd, quantity, unit, amountUsd)."
         },
         "totalAmountUsd": {
           "type": "number",
@@ -731,6 +731,10 @@
             "ru"
           ],
           "description": "Document language."
+        },
+        "details": {
+          "type": "object",
+          "description": "Terms, buyer contact, charges and seller/bank snapshot printed on the document (incoterm, ports, deliveryTime, packing, freightUsd, insuranceUsd, discountUsd, depositPercent, subtotalUsd, seller, bank, ...)."
         },
         "createdBy": {
           "type": "string",
@@ -805,6 +809,104 @@
         "beneficiary",
         "bankName",
         "accountNumber"
+      ]
+    },
+    "QuotationConfig": {
+      "title": "Quotation Seller Details & Default Terms",
+      "description": "Seller details, company stamp and default terms printed on proforma invoices. Stored at site_config/quotation; readable by active staff only.",
+      "type": "object",
+      "properties": {
+        "companyNameEn": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Seller legal name in English."
+        },
+        "companyNameZh": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Seller legal name in Chinese."
+        },
+        "addressEn": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Seller address in English."
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Phone printed on quotations (empty = website hotline)."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Email printed on quotations (empty = website email)."
+        },
+        "website": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "Website printed on quotations."
+        },
+        "stampImage": {
+          "type": "string",
+          "maxLength": 300000,
+          "description": "Company stamp / signature as a PNG, JPEG or WebP data URL."
+        },
+        "defaultIncoterm": {
+          "type": "string",
+          "enum": [
+            "EXW",
+            "FOB",
+            "CFR",
+            "CIF",
+            "DAP"
+          ],
+          "description": "Default Incoterm."
+        },
+        "defaultPortOfLoading": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Default port of loading."
+        },
+        "defaultPaymentTerms": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Default payment terms."
+        },
+        "defaultDepositPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Default deposit percentage."
+        },
+        "defaultDeliveryTime": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Default delivery time."
+        },
+        "defaultValidityDays": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 365,
+          "description": "Default validity in days."
+        },
+        "defaultPacking": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Default packing description."
+        },
+        "standardTerms": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Standard terms printed under remarks."
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp."
+        }
+      },
+      "required": [
+        "companyNameEn"
       ]
     },
     "CategoryConfig": {

@@ -54,7 +54,8 @@ function fromCloud(raw: Record<string, any>, id: string): QuotationSheet {
     createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
     leadId: raw.leadId ? String(raw.leadId) : undefined,
     customerId: raw.customerId ? String(raw.customerId) : undefined,
-    lang: raw.lang
+    lang: raw.lang,
+    details: raw.details && typeof raw.details === 'object' ? raw.details : undefined
   };
 }
 
@@ -111,7 +112,7 @@ export class QuotationDomainService {
       throw new Error('未检测到有效的云端认证会话，无法保存报价单。');
     }
     if (!draft.clientName.trim()) {
-      throw new Error('请先填写客户名称后再导出报价单。');
+      throw new Error('请先填写客户联系人或公司名称。');
     }
     if (!draft.items.length) {
       throw new Error('报价单至少需要一行商品。');
