@@ -173,6 +173,13 @@ const MainApp: React.FC = () => {
     setInquiryProduct(product);
   };
 
+  const handleBackToPortal = useCallback(() => setViewMode('portal'), []);
+
+  const handleSessionEnded = useCallback(() => {
+    setAdminSession(null);
+    setViewMode('portal');
+  }, []);
+
   if (viewMode === 'admin' && adminSession) {
     return (
       <Suspense fallback={<ConsoleFallback />}>
@@ -180,11 +187,8 @@ const MainApp: React.FC = () => {
           session={adminSession}
           products={products}
           onProductsChange={setVisibleProducts}
-          onBackToPortal={() => setViewMode('portal')}
-          onSessionEnded={() => {
-            setAdminSession(null);
-            setViewMode('portal');
-          }}
+          onBackToPortal={handleBackToPortal}
+          onSessionEnded={handleSessionEnded}
           toastMessage={toastMessage}
           showToast={showToast}
         />

@@ -178,6 +178,9 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
     }
   }, [onProductsChange, refresh, showToast]);
 
+  const clearLeadForModal = useCallback(() => setLeadIdForModal(null), []);
+  const clearLeadForQuotation = useCallback(() => setLeadIdForQuotation(null), []);
+
   const logout = () => endSession('已安全退出管理中台。');
 
   return (
@@ -212,7 +215,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
             onRefreshLeads={refresh}
             onShowToast={showToast}
             initialOpenLeadId={leadIdForModal}
-            onClearInitialOpenLeadId={() => setLeadIdForModal(null)}
+            onClearInitialOpenLeadId={clearLeadForModal}
             onNavigateToQuotationWithLead={lead => {
               setLeadIdForQuotation(lead.id);
               setTab('quotation');
@@ -226,7 +229,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
             products={products}
             leads={leads}
             initialLeadId={leadIdForQuotation}
-            onClearInitialLeadId={() => setLeadIdForQuotation(null)}
+            onClearInitialLeadId={clearLeadForQuotation}
             onRefreshData={refresh}
             onShowToast={showToast}
           />
