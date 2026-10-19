@@ -21,6 +21,7 @@ import { LISTENER_LIMITS } from '../../config/appConfig';
 import { sanitizeLeadForFirestore, sanitizeForFirestore } from '../../utils/firestoreSanitizer';
 import { withTimeout, ADMIN_OPERATION_TIMEOUT_MS } from './adminShared';
 import { AuditLogDomainService } from './auditLogService';
+import { formatUsd, toCents } from '../../utils/format';
 
 /** One row of an Excel import, already validated by the import dialog. */
 export interface LeadImportItem {
@@ -328,7 +329,7 @@ export class LeadsCrmDomainService {
         location: (item.location || '').trim().slice(0, 200),
         message: (item.message || '').trim().slice(0, 5000),
         estimatedValueUsd:
-          typeof item.estimatedValueUsd === 'number' && item.estimatedValueUsd > 0 ? Math.round(item.estimatedValueUsd) : undefined,
+          typeof item.estimatedValueUsd === 'number' && item.estimatedValueUsd > 0 ? Math.min(1000000000, toCents(item.estimatedValueUsd)) : undefined,
         stage: item.stage,
         assignedStaffId: owner ? owner.id : undefined,
         assignedStaffName: owner?.name,
@@ -381,7 +382,7 @@ export class LeadsCrmDomainService {
     }
     const safeValue =
       typeof estimatedValueUsd === 'number' && Number.isFinite(estimatedValueUsd) && estimatedValueUsd > 0
-        ? Math.round(estimatedValueUsd)
+        ? Math.min(1000000000, toCents(estimatedValueUsd))
         : undefined;
     const assignedStaff = safeStaffId
       ? staffList.find(s => s.id === safeStaffId || s.uid === safeStaffId)
@@ -426,7 +427,7 @@ export class LeadsCrmDomainService {
       currentStaff,
       '手动录入线索',
       `${newLead.customerName} (${newLead.id})`,
-      `预估金额: ${safeValue ? `$${safeValue.toLocaleString()}` : '待估值'} | 指派给: ${staffName || '未分配(公海)'}`
+      `预估金额: ${safeValue ? formatUsd(safeValue) : '待估值'} | 指派给: ${staffName || '未分配(公海)'}`
     );
 
     return newLead;
@@ -505,7 +506,7 @@ export class LeadsCrmDomainService {
       currentStaff,
       sourceLabel || '更新商机预估金额',
       `${lead.customerName} (${lead.id})`,
-      `商机估值由 $${oldVal.toLocaleString()} 调整为 $${safeVal.toLocaleString()} USD`
+      `商机估值由 ${formatUsd(oldVal)} 调整为 ${formatUsd(safeVal)} USD`
     );
 
     return { lead: { ...lead }, oldVal };
@@ -543,7 +544,7 @@ export class LeadsCrmDomainService {
       currentStaff,
       '报价单回写商机金额',
       targetName,
-      `商机估值由 $${oldVal.toLocaleString()} 调整为 $${wb.estimatedValueUsd.toLocaleString()} USD`
+      `商机估值由 ${formatUsd(oldVal)} 调整为 ${formatUsd(wb.estimatedValueUsd)} USD`
     );
     if (wb.oldStage && wb.newStage && wb.oldStage !== wb.newStage) {
       this.auditLogger.logAction(

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../services/adminApi';
-import { formatLeadValueUsd, formatRelativeTime } from '../../utils/format';
+import { formatLeadValueUsd, formatRelativeTime, formatUsd, toCents } from '../../utils/format';
 import { Inbox, RefreshCw, ChevronRight, FileText, Save } from 'lucide-react';
 import { AdminLead } from '../../types/admin';
 import { LEAD_STAGES, STAGE_BAR_COLORS, getStage } from '../../config/leadStages';
@@ -157,7 +157,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       accent: poolCount > 0
     },
     { label: '进行中商机', value: <CountUp to={activeLeadsCount} />, note: '新线索到谈判中' },
-    { label: '管道金额（USD）', value: <CountUp to={totalPipelineUsd} prefix="$" />, note: '不含已归档；待估值的不计入' },
+    { label: '管道金额（USD）', value: <CountUp to={toCents(totalPipelineUsd)} decimals={toCents(totalPipelineUsd) % 1 ? 2 : 0} prefix="$" />, note: '不含已归档；待估值的不计入' },
     { label: '成交率', value: <CountUp to={winRate} suffix="%" />, note: `已成交 ${wonCount} / 共 ${totalLeads} 条` }
   ];
 
@@ -246,7 +246,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </td>
                   <td className="text-end font-sign font-semibold">{row.count}</td>
                   <td className="text-end font-sign text-slate-500">{row.pct.toFixed(0)}%</td>
-                  <td className="!pe-1 text-end font-sign">{row.value > 0 ? `$${row.value.toLocaleString()}` : '—'}</td>
+                  <td className="!pe-1 text-end font-sign">{row.value > 0 ? formatUsd(row.value) : '—'}</td>
                 </tr>
               ))}
             </tbody>

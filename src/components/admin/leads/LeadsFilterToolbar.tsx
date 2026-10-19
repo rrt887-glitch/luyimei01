@@ -3,6 +3,7 @@ import { AdminLead, LeadStage, StaffAccount } from '../../../types/admin';
 import { Search, Download, Trash2, X } from 'lucide-react';
 import { STAGE_BAR_COLORS } from '../../../config/leadStages';
 import type { StageConfig } from '../../../config/leadStages';
+import { formatUsd } from '../../../utils/format';
 
 export type { StageConfig };
 
@@ -101,7 +102,7 @@ export const LeadsFilterToolbar: React.FC<LeadsFilterToolbarProps> = ({
             <span className="font-sign font-semibold text-night">{filteredCount}</span> 条
             {pipelineUsd > 0 && (
               <>
-                ，估值 <span className="font-sign font-semibold text-night">${pipelineUsd.toLocaleString()}</span>
+                ，估值 <span className="font-sign font-semibold text-night">{formatUsd(pipelineUsd)}</span>
               </>
             )}
           </span>

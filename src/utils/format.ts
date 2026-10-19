@@ -1,6 +1,15 @@
 /** Display helper for lead valuations: an unvalued lead is shown as "待估值", never as a fake amount. */
+/** Rounds to whole cents (also cleans float noise such as 80.50000000001 from summed values). */
+export const toCents = (value: number): number => Math.round((Number(value) || 0) * 100) / 100;
+
+/** "$40.25", "$1,200" — cents are shown whenever the amount has them. */
+export function formatUsd(value: number): string {
+  const v = toCents(value);
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 })}`;
+}
+
 export function formatLeadValueUsd(value: number | undefined | null): string {
-  return typeof value === 'number' && value > 0 ? `$${value.toLocaleString()}` : '待估值';
+  return typeof value === 'number' && value > 0 ? formatUsd(value) : '待估值';
 }
 
 export function hasLeadValue(value: number | undefined | null): value is number {

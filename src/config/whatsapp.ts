@@ -258,6 +258,21 @@ export function getWhatsAppInquiryUrl(
 }
 
 /**
+ * Digits for a wa.me link. A number written with its country code (+1 202…, 00971…) is used as is.
+ * Only a bare 11-digit mainland mobile (13x–19x, no "+") gets China's 86 in front — a "+1" US
+ * number is also 11 digits starting with 1 and must never be turned into a Chinese one.
+ */
+export function toWhatsAppDigits(raw: string): string {
+  const text = (raw || '').trim();
+  let digits = text.replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  if (text.startsWith('+')) return digits;
+  if (digits.startsWith('00')) return digits.slice(2);
+  if (/^1[3-9]\d{9}$/.test(digits)) return '86' + digits;
+  return digits;
+}
+
+/**
  * Generate a direct WhatsApp follow-up URL targeting a specific CRM customer's phone number,
  * prefilled with personalized sales rep introduction and project context.
  */
@@ -267,13 +282,8 @@ export function getClientWhatsAppFollowUpUrl(
   needType: string,
   salesRepName: string
 ): string {
-  let digits = (customerPhone || '').replace(/[^0-9]/g, '');
+  const digits = toWhatsAppDigits(customerPhone);
   if (!digits || isPlaceholderPhoneNumber(digits)) return '';
-
-  // If 11 digits starting with 1 (mainland Chinese mobile), prefix 86
-  if (digits.length === 11 && digits.startsWith('1')) {
-    digits = '86' + digits;
-  }
 
   const name = customerName || '尊敬的客户';
   const need = needType || '道路工程产品需求';

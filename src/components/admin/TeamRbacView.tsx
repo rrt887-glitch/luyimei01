@@ -4,7 +4,7 @@ import { adminApi } from '../../services/adminApi';
 import { generateStrongPassword } from '../../utils/crypto';
 import { UserPlus, KeyRound, CheckCircle, X, Trash2, Sparkles, Eye, EyeOff, Copy, Check, Phone, Mail } from 'lucide-react';
 import { PageHeader, Chip, Modal, FormField, Avatar } from './AdminUI';
-import { formatRelativeTime } from '../../utils/format';
+import { formatRelativeTime, formatUsd } from '../../utils/format';
 
 interface TeamRbacViewProps {
   staffList: StaffAccount[];
@@ -336,7 +336,7 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
                   <div className="text-xs text-slate-500">进行中</div>
                 </div>
                 <div>
-                  <div className="font-sign text-lg font-semibold text-night truncate">{totalVal > 0 ? `$${totalVal.toLocaleString()}` : '—'}</div>
+                  <div className="font-sign text-lg font-semibold text-night truncate">{totalVal > 0 ? formatUsd(totalVal) : '—'}</div>
                   <div className="text-xs text-slate-500">估值</div>
                 </div>
               </div>

@@ -15,6 +15,7 @@ import {
 import { sanitizeQuotationForFirestore, sanitizeForFirestore } from '../../utils/firestoreSanitizer';
 import { withTimeout, ADMIN_OPERATION_TIMEOUT_MS } from './adminShared';
 import { LISTENER_LIMITS } from '../../config/appConfig';
+import { formatUsd } from '../../utils/format';
 
 export type QuotationDraft = Omit<QuotationSheet, 'id' | 'createdBy' | 'createdByUid' | 'createdAt'>;
 
@@ -144,7 +145,7 @@ export class QuotationDomainService {
       createdAt: nowIso
     };
 
-    const noteContent = `已开具外贸形式发票报价单 [${quotation.quotationNumber}]，报价总额 $${quotation.totalAmountUsd.toLocaleString()} USD`;
+    const noteContent = `已开具外贸形式发票报价单 [${quotation.quotationNumber}]，报价总额 ${formatUsd(quotation.totalAmountUsd)} USD`;
     const newNote: LeadFollowUpNote = sanitizeForFirestore({
       id: `NOTE-${doc(collection(db, 'inquiries')).id.slice(0, 10)}`,
       author: actor.name || '销售顾问',

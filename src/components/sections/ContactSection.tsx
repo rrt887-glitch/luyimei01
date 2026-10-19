@@ -16,6 +16,16 @@ import {
 
 import { useSiteContactConfig } from '../../config/whatsapp';
 import { WhatsAppInput, guessCountryFromBrowser, joinPhone, splitPhone } from '../common/CountryPicker';
+import { zh } from '../../i18n/locales/zh';
+
+/** Need types are kept as keys while the visitor fills the form (so switching language never leaves a
+ *  stale translation behind) and saved in Chinese, the console's language. */
+const NEED_KEYS = ['optMaterial', 'optEquipment', 'optCustom', 'optSupport'] as const;
+type NeedKey = (typeof NEED_KEYS)[number];
+const needKeyFor = (value: string | undefined): NeedKey => {
+  for (const k of NEED_KEYS) if (value === k || value === zh.contact[k]) return k;
+  return 'optMaterial';
+};
 
 interface ContactSectionProps {
   prefilledNeed?: string;
@@ -39,7 +49,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
   const [formData, setFormData] = useState<InquiryFormData>({
     name: '',
     phone: '',
-    needType: d.contact.optMaterial,
+    needType: 'optMaterial',
     location: '',
     message: ''
   });
@@ -73,7 +83,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
 
   useEffect(() => {
     if (prefilledNeed) {
-      setFormData(prev => ({ ...prev, needType: prefilledNeed }));
+      setFormData(prev => ({ ...prev, needType: needKeyFor(prefilledNeed) }));
     }
     if (prefilledMessage) {
       setFormData(prev => ({ ...prev, message: prefilledMessage }));
@@ -140,7 +150,11 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
     try {
       setIsSubmitting(true);
       setOfflineResult(null);
-      const result = await api.submitInquiry({ ...formData, phone: joinPhone(waCountry, waNumber) });
+      const result = await api.submitInquiry({
+        ...formData,
+        needType: zh.contact[needKeyFor(formData.needType)],
+        phone: joinPhone(waCountry, waNumber)
+      });
       setPendingOutboxCount(result.pendingOutboxCount);
 
       if (result.syncedToCloud) {
@@ -151,7 +165,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
         setFormData({
           name: api.getCurrentUser()?.name || '',
           phone: '',
-          needType: d.contact.optMaterial,
+          needType: 'optMaterial',
           location: '',
           message: ''
         });
@@ -378,10 +392,11 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                   onChange={e => setFormData({ ...formData, needType: e.target.value })}
                   className="field"
                 >
-                  <option value={d.contact.optMaterial}>{d.contact.optMaterial}</option>
-                  <option value={d.contact.optEquipment}>{d.contact.optEquipment}</option>
-                  <option value={d.contact.optCustom}>{d.contact.optCustom}</option>
-                  <option value={d.contact.optSupport}>{d.contact.optSupport}</option>
+                  {NEED_KEYS.map(k => (
+                    <option key={k} value={k}>
+                      {d.contact[k]}
+                    </option>
+                  ))}
                 </select>
               </div>
 

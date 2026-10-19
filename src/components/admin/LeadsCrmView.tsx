@@ -14,6 +14,7 @@ import { buildXlsx, downloadBlob } from '../../utils/xlsx';
 import { Plus, Download, Upload } from 'lucide-react';
 import { LEAD_STAGES, getStage } from '../../config/leadStages';
 import { PageHeader } from './AdminUI';
+import { formatUsd } from '../../utils/format';
 
 interface LeadsCrmViewProps {
   leads: AdminLead[];
@@ -115,7 +116,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
       if (updated && activeLeadForNotes?.id === leadId) {
         setActiveLeadForNotes({ ...updated });
       }
-      onShowToast(`估值已更新为 $${newVal.toLocaleString()}`);
+      onShowToast(`估值已更新为 ${formatUsd(newVal)}`);
     } catch (err) {
       onShowToast(`更新商机估值失败：${(err as Error).message}`);
     }

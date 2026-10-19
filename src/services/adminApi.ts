@@ -26,6 +26,7 @@ import { LeadsCrmDomainService } from './admin/leadsCrmService';
 import { CustomerDomainService } from './admin/customerService';
 import { withTimeout } from './admin/adminShared';
 import { ADMIN_SESSION_CLEARED_EVENT } from './adminSession';
+import { formatUsd } from '../utils/format';
 
 export { withTimeout };
 
@@ -577,7 +578,7 @@ class AdminApiService {
       actor,
       '开具外贸报价单',
       `${quotation.clientName} (${quotation.quotationNumber})`,
-      `总金额: $${quotation.totalAmountUsd.toLocaleString()} | 有效期: ${quotation.validUntil}`
+      `总金额: ${formatUsd(quotation.totalAmountUsd)} | 有效期: ${quotation.validUntil}`
     );
 
     let crmSynced = false;

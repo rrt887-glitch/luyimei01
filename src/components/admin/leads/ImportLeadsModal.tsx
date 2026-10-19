@@ -5,6 +5,7 @@ import { AdminLead, StaffAccount } from '../../../types/admin';
 import { readSpreadsheet } from '../../../utils/xlsx';
 import { getStage } from '../../../config/leadStages';
 import { MAX_IMPORT_ROWS, ParsedRow, parseLeadRows } from './leadsSpreadsheet';
+import { formatUsd } from '../../../utils/format';
 
 interface ImportLeadsModalProps {
   open: boolean;
@@ -253,7 +254,7 @@ export const ImportLeadsModal: React.FC<ImportLeadsModalProps> = ({ open, onClos
                     </td>
                     <td>{getStage(r.item.stage).label}</td>
                     <td>{r.ownerLabel}</td>
-                    <td className="text-end font-sign">{r.item.estimatedValueUsd ? `$${r.item.estimatedValueUsd.toLocaleString()}` : '—'}</td>
+                    <td className="text-end font-sign">{r.item.estimatedValueUsd ? formatUsd(r.item.estimatedValueUsd) : '—'}</td>
                     <td className="text-[13px]">
                       {r.errors.length > 0 && <span className="text-rose-700">{r.errors.join('；')}</span>}
                       {r.errors.length === 0 && r.duplicateOf && <span className="text-amber-700">与{r.duplicateOf}相同</span>}

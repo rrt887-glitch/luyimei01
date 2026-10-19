@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pencil, Check, X } from 'lucide-react';
-import { formatLeadValueUsd, hasLeadValue } from '../../../utils/format';
+import { formatLeadValueUsd, hasLeadValue, toCents } from '../../../utils/format';
 
 /** Click-to-edit USD valuation. Enter saves, Escape cancels. */
 export const LeadValueEditor: React.FC<{
@@ -12,7 +12,7 @@ export const LeadValueEditor: React.FC<{
   const [input, setInput] = useState('');
 
   const commit = async () => {
-    const parsed = Math.max(0, Math.round(Number(input) || 0));
+    const parsed = Math.max(0, toCents(Number(input) || 0));
     setEditing(false);
     if (onSave && parsed !== (value || 0)) await onSave(parsed);
   };
@@ -24,7 +24,7 @@ export const LeadValueEditor: React.FC<{
         <input
           type="number"
           min="0"
-          step="100"
+          step="0.01"
           autoFocus
           value={input}
           onChange={e => setInput(e.target.value)}

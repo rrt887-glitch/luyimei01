@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AdminLead } from '../../../types/admin';
 import { getClientWhatsAppFollowUpUrl } from '../../../config/whatsapp';
 import { getStage } from '../../../config/leadStages';
-import { formatRelativeTime, formatDateTime } from '../../../utils/format';
+import { formatRelativeTime, formatDateTime, toCents } from '../../../utils/format';
 import { MessageCircle, Send, FileText, Check, Trash2 } from 'lucide-react';
 import { Drawer, Modal, Chip, FormField } from '../AdminUI';
 
@@ -43,7 +43,7 @@ export const LeadNotesModal: React.FC<LeadNotesModalProps> = ({
 
   const handleSaveValuation = async () => {
     if (!onUpdateEstimatedValue || savingEst) return;
-    const parsed = Math.max(0, Math.round(Number(estInput) || 0));
+    const parsed = Math.max(0, toCents(Number(estInput) || 0));
     setSavingEst(true);
     try {
       await onUpdateEstimatedValue(activeLead.id, parsed);
@@ -120,7 +120,7 @@ export const LeadNotesModal: React.FC<LeadNotesModalProps> = ({
           <input
             type="number"
             min="0"
-            step="100"
+            step="0.01"
             value={estInput}
             onChange={e => setEstInput(e.target.value)}
             placeholder="待估值"

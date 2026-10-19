@@ -1,6 +1,7 @@
+import { toWhatsAppDigits } from '../../config/whatsapp';
 import React, { useState } from 'react';
 import { AdminLead, CustomerProfile } from '../../types/admin';
-import { formatLeadValueUsd, formatDateTime } from '../../utils/format';
+import { formatLeadValueUsd, formatDateTime, formatUsd } from '../../utils/format';
 import { adminApi } from '../../services/adminApi';
 import { buildXlsx, downloadBlob } from '../../utils/xlsx';
 import { getStage } from '../../config/leadStages';
@@ -160,7 +161,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
   };
 
   const getWhatsAppUrl = (phone: string, name: string) => {
-    const clean = phone.replace(/[^0-9]/g, '');
+    const clean = toWhatsAppDigits(phone);
     return `https://wa.me/${clean}?text=${encodeURIComponent(
       `Hello ${name}, this is Luyimei (LYM) Road Pavement Engineering. Thank you for your interest.`
     )}`;
@@ -197,7 +198,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
         </div>
         <div className="panel p-4">
           <div className="stat-label">累计报价（USD）</div>
-          <div className="stat-value">${totalQuoted.toLocaleString()}</div>
+          <div className="stat-value">{formatUsd(totalQuoted)}</div>
         </div>
       </div>
 
@@ -276,7 +277,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                       </td>
                       <td className="text-[13px] text-slate-600 whitespace-nowrap">{customer.source || '官网注册'}</td>
                       <td className="text-end font-sign">{customer.inquiryCount ?? 0}</td>
-                      <td className="text-end font-sign font-semibold">${(customer.totalQuotationUsd || 0).toLocaleString()}</td>
+                      <td className="text-end font-sign font-semibold">{formatUsd(customer.totalQuotationUsd || 0)}</td>
                       <td>
                         <select
                           value={customer.status}
@@ -385,7 +386,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               </div>
               <div className="rounded-lg bg-concrete p-3.5">
                 <div className="stat-label">累计报价（USD）</div>
-                <div className="stat-value !text-2xl">${(selectedCustomer.totalQuotationUsd || 0).toLocaleString()}</div>
+                <div className="stat-value !text-2xl">{formatUsd(selectedCustomer.totalQuotationUsd || 0)}</div>
               </div>
             </div>
 
