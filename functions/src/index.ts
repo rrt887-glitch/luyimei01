@@ -31,7 +31,7 @@ const app = initializeApp();
 
 // Must match `firestoreDatabaseId` in firebase-applet-config.json (checked by tests/config.consistency.test.ts).
 const FIRESTORE_DATABASE_ID =
-  process.env.FIRESTORE_DATABASE_ID || 'ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad';
+  process.env.FIRESTORE_DATABASE_ID || 'ai-studio-cardcorner-bf216942-1486-4ef1-bcb0-4a7b0673efe2';
 
 // Must match STAFF_AUTH_EMAIL_DOMAIN in src/config/appConfig.ts.
 const STAFF_AUTH_EMAIL_DOMAIN = 'auth.luyimei.com';

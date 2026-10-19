@@ -73,7 +73,7 @@
     ]
   },
   "firestore": {
-    "database": "ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad",
+    "database": "ai-studio-cardcorner-bf216942-1486-4ef1-bcb0-4a7b0673efe2",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
