@@ -1,3 +1,10 @@
+# v13.1 修改说明：恢复服务器端注册验证
+
+- 撤回「云端验证码连不上时由浏览器本地生成验证码并直接注册」的改动：本地验证码可以被脚本绕过，且服务器端的直接注册拦截被删除后，任何人都能用公开的 Firebase 配置批量注册账户、灌入客户档案。
+- 恢复后：验证码由 Cloud Function `getSignupCaptcha` 生成、`registerBuyer` 校验并创建账户；`beforeAccountCreated` 继续拦截绕过网站表单的注册。
+- 验证码出不来时，请按 DEPLOY.md 部署 Functions，并用其中的检查地址确认服务已上线；页面会提示是「服务未部署」还是「网络连不上」。
+- 需要重新部署：`firebase deploy --only functions,hosting`。
+
 # v13 修改说明：产品弹窗一屏显示、工程需求改填 WhatsApp、单品快速询价
 
 ## 一、产品详情弹窗不用再往下滚

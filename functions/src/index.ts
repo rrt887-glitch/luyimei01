@@ -182,6 +182,9 @@ export const beforeAccountCreated = beforeUserCreated(event => {
       '安全拦截：内部员工专用认证域名禁止外部公开注册，仅限超级管理员在后台开通。'
     );
   }
+  if (email) {
+    throw new HttpsError('permission-denied', 'Please register through the form on the website.');
+  }
 });
 
 // ---------------------------------------------------------------------------

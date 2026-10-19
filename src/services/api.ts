@@ -33,12 +33,6 @@ import {
   sanitizeBuyerForFirestore,
   sanitizeFavoriteForFirestore
 } from '../utils/firestoreSanitizer';
-import {
-  createLocalSignupCaptcha,
-  isLocalCaptchaId,
-  verifyAndConsumeLocalCaptcha,
-  registerBuyerDirectFallback
-} from '../utils/localSignupFallback';
 
 export interface BuyerProfile {
   id: string;
@@ -703,43 +697,22 @@ class ApiService {
     return user;
   }
 
-  private cloudSignupAvailable: boolean | null = null;
-
   /**
-   * Step 1 of sign-up: a fresh picture captcha.
-   * Probes Cloud Function `getSignupCaptcha` with a fast 2.5s timeout on first attempt, caches
-   * availability for the session, and automatically falls back to the local vector-path SVG captcha
-   * generator when Cloud Functions are undeployed or unreachable.
+   * Step 1 of sign-up: a fresh picture captcha (Cloud Function `getSignupCaptcha`).
+   * `src` can be used directly as an <img> source; each captcha can be submitted once.
    */
   async getSignupCaptcha(): Promise<{ id: string; src: string }> {
-    if (this.cloudSignupAvailable === false) {
-      return createLocalSignupCaptcha();
-    }
-    try {
-      const res = await withTimeout(
-        callSignupFunction<Record<string, never>, { id: string; svg: string }>(
-          'getSignupCaptcha',
-          {},
-          2500
-        ),
-        2500
-      );
-      this.cloudSignupAvailable = true;
-      return { id: res.id, src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(res.svg)}` };
-    } catch (err) {
-      if (err instanceof SignupError && err.reason === 'too_many') {
-        this.cloudSignupAvailable = true;
-        throw err;
-      }
-      this.cloudSignupAvailable = false;
-      return createLocalSignupCaptcha();
-    }
+    // Short timeout: a picture that has not arrived in 15 s is not coming (first call after a deploy
+    // can take a few seconds while the function starts).
+    const res = await callSignupFunction<Record<string, never>, { id: string; svg: string }>('getSignupCaptcha', {}, 15000);
+    return { id: res.id, src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(res.svg)}` };
   }
 
   /**
-   * Step 2 of sign-up: checks the picture captcha and creates the Auth account, `buyers/{uid}`
-   * profile, and `customers/CUST-{uid}` CRM archive. Uses Cloud Function `registerBuyer` first,
-   * and falls back to local captcha verification + direct registration when operating in local fallback mode.
+   * Step 2 of sign-up: the server checks the picture captcha, then creates the Auth account, the
+   * buyers/{uid} profile and the CRM customer record (Cloud Function `registerBuyer`). Browsers
+   * cannot create accounts on their own (blocked by `beforeAccountCreated`), so the captcha cannot
+   * be skipped. The new buyer is then signed in like a normal login.
    */
   async register(data: {
     name: string;
@@ -758,68 +731,16 @@ class ApiService {
     if (adminApi.isAdminLoggedIn()) {
       adminApi.clearAdminSession(false);
     }
-
-    const runDirectFallback = async () => {
-      const result = await registerBuyerDirectFallback(
-        {
-          name: data.name,
-          email: cleanEmail,
-          password: data.password,
-          country: data.country,
-          dialCode: data.dialCode,
-          whatsapp: data.whatsapp
-        },
-        (reason, msg) => new SignupError(reason, msg)
-      );
-
-      const profiles = this.getBuyerProfiles().filter(
-        p => p.uid !== result.uid && p.email.toLowerCase() !== cleanEmail
-      );
-      profiles.push({
-        id: result.uid,
-        uid: result.uid,
-        email: cleanEmail,
-        name: data.name.trim(),
-        company: '',
-        phone: result.whatsapp,
-        country: data.country.trim(),
-        role: '官网注册买家',
-        registeredAt: result.registeredAt
-      });
-      this.saveBuyerProfiles(profiles);
-    };
-
-    if (isLocalCaptchaId(data.captchaId)) {
-      const check = verifyAndConsumeLocalCaptcha(data.captchaId, data.captchaAnswer);
-      if (!check.ok) {
-        throw new SignupError(check.reason);
-      }
-      await runDirectFallback();
-      return this.login(cleanEmail, data.password);
-    }
-
-    try {
-      await callSignupFunction('registerBuyer', {
-        name: data.name.trim(),
-        email: cleanEmail,
-        password: data.password,
-        country: data.country.trim(),
-        dialCode: data.dialCode,
-        whatsapp: data.whatsapp,
-        captchaId: data.captchaId,
-        captchaAnswer: data.captchaAnswer.trim()
-      });
-    } catch (err) {
-      if (
-        err instanceof SignupError &&
-        (err.reason === 'service_unavailable' || err.reason === 'network' || err.reason === 'unknown')
-      ) {
-        this.cloudSignupAvailable = false;
-        await runDirectFallback();
-      } else {
-        throw err;
-      }
-    }
+    await callSignupFunction('registerBuyer', {
+      name: data.name.trim(),
+      email: cleanEmail,
+      password: data.password,
+      country: data.country.trim(),
+      dialCode: data.dialCode,
+      whatsapp: data.whatsapp,
+      captchaId: data.captchaId,
+      captchaAnswer: data.captchaAnswer.trim()
+    });
     return this.login(cleanEmail, data.password);
   }
 

@@ -82,19 +82,16 @@ describe('Product category ids follow one pattern everywhere', () => {
   });
 });
 
-describe('Buyer sign-up goes through the captcha functions with local SVG fallback', () => {
-  it('functions export getSignupCaptcha and registerBuyer, and the website calls them first with local vector SVG fallback', () => {
+describe('Buyer sign-up goes through the captcha functions', () => {
+  it('functions export getSignupCaptcha and registerBuyer, and the website calls them', () => {
     const fn = read('functions/src/index.ts');
     expect(fn).toContain('export const getSignupCaptcha');
     expect(fn).toContain('export const registerBuyer');
-    // The picture must not carry its answer as text in either cloud or local SVG renderer.
+    // The picture must not carry its answer as text.
     expect(fn).not.toMatch(/<text[\s>]/);
-    const localFallback = read('src/utils/localSignupFallback.ts');
-    expect(localFallback).not.toMatch(/<text[\s>]/);
     const api = read('src/services/api.ts');
     expect(api).toContain("'getSignupCaptcha'");
     expect(api).toContain("'registerBuyer'");
-    expect(api).toContain('createLocalSignupCaptcha');
+    expect(api).not.toContain('createUserWithEmailAndPassword');
   });
 });
-

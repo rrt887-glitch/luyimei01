@@ -7,7 +7,6 @@ import { UserAccount, InquiryRecord } from '../../types';
 import { StaffAccount } from '../../types/admin';
 import { X, Loader2, Eye, EyeOff, LogOut, Lock, Clock, RefreshCw, Globe, MessageCircle, Mail } from 'lucide-react';
 import { CountryPicker, Flag, findCountry, getCountryOptions, guessCountryFromBrowser } from '../common/CountryPicker';
-import { createLocalSignupCaptcha } from '../../utils/localSignupFallback';
 
 interface AccountModalProps {
   isOpen: boolean;
@@ -116,14 +115,17 @@ export const AccountModal: React.FC<AccountModalProps> = ({
     try {
       setCaptcha(await api.getSignupCaptcha());
     } catch (e) {
+      setCaptcha(null);
       const reason = (e as SignupError).reason;
-      if (reason === 'too_many') {
-        setCaptcha(null);
-        setCaptchaError(t.errors.too_many);
-      } else {
-        setCaptcha(createLocalSignupCaptcha());
-        setCaptchaError('');
-      }
+      setCaptchaError(
+        reason === 'too_many'
+          ? t.errors.too_many
+          : reason === 'service_unavailable'
+            ? t.captchaUnavailable
+            : reason === 'network'
+              ? t.captchaNetwork
+              : t.errors.unknown
+      );
     } finally {
       setCaptchaLoading(false);
     }
