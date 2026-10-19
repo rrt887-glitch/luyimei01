@@ -8,7 +8,7 @@ export const ar: typeof zh = {
     materials: 'مواد الصيانة',
     equipment: 'معدات التنفيذ',
     process: 'خطوات العمل',
-    cases: 'المشاريع الهندسية',
+    cases: 'معلومات التوريد',
     contact: 'طلب مخصص',
     favorites: 'المفضلة',
     account: 'الحساب',
@@ -27,6 +27,7 @@ export const ar: typeof zh = {
     photoHeading: 'من المواد إلى المعدات، كل مرحلة مدعومة بخبرة هندسية موثوقة.',
     stats: {
       capital: 'رأس المال المسجل',
+      capitalValue: 26.7,
       capitalUnit: 'مليون يوان',
       stock: 'المخزون الجاهز للشحن',
       stockUnit: 'طن+',

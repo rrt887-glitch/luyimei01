@@ -1,4 +1,4 @@
-import { QuotationSheet, StaffAccount } from '../../types/admin';
+import { LeadFollowUpNote, LeadStage, QuotationSheet, StaffAccount } from '../../types/admin';
 import { db, auth } from '../firebase';
 import {
   collection,
@@ -8,13 +8,24 @@ import {
   where,
   orderBy,
   limit,
-  runTransaction
+  runTransaction,
+  arrayUnion,
+  deleteField
 } from 'firebase/firestore';
-import { sanitizeQuotationForFirestore } from '../../utils/firestoreSanitizer';
+import { sanitizeQuotationForFirestore, sanitizeForFirestore } from '../../utils/firestoreSanitizer';
 import { withTimeout, ADMIN_OPERATION_TIMEOUT_MS } from './adminShared';
 import { LISTENER_LIMITS } from '../../config/appConfig';
 
 export type QuotationDraft = Omit<QuotationSheet, 'id' | 'createdBy' | 'createdByUid' | 'createdAt'>;
+
+export interface QuotationLeadWriteback {
+  leadId: string;
+  estimatedValueUsd: number;
+  oldStage?: LeadStage;
+  newStage?: LeadStage;
+  note: LeadFollowUpNote;
+  updatedAt: string;
+}
 
 /**
  * PI numbers: `PI-LYM-YYYYMMDD-XXXXXX` where XXXXXX comes from a Firestore auto-ID
@@ -99,14 +110,18 @@ export class QuotationDomainService {
   }
 
   /**
-   * Persists an issued quotation exactly once.
-   * Exporting / printing the same PI number again returns `alreadyIssued: true` and writes nothing,
-   * so CRM write-backs (lead value, stage, follow-up note, customer total) never happen twice.
+   * Persists an issued quotation and updates the linked CRM lead atomically in a single Firestore
+   * transaction. Exporting / printing the same PI number again returns `alreadyIssued: true` and
+   * writes nothing, so CRM write-backs (lead value, stage, follow-up note) never split or repeat.
    */
   async issueQuotation(
     draft: QuotationDraft,
     actor: StaffAccount
-  ): Promise<{ quotation: QuotationSheet; alreadyIssued: boolean }> {
+  ): Promise<{
+    quotation: QuotationSheet;
+    alreadyIssued: boolean;
+    leadWriteback: QuotationLeadWriteback | null;
+  }> {
     const uid = auth.currentUser?.uid;
     if (!uid) {
       throw new Error('未检测到有效的云端认证会话，无法保存报价单。');
@@ -118,6 +133,7 @@ export class QuotationDomainService {
       throw new Error('报价单至少需要一行商品。');
     }
 
+    const nowIso = new Date().toISOString();
     const id = quotationDocId(draft.quotationNumber);
     const ref = doc(db, 'quotations', id);
     const quotation: QuotationSheet = {
@@ -125,15 +141,57 @@ export class QuotationDomainService {
       id,
       createdBy: actor.name,
       createdByUid: uid,
-      createdAt: new Date().toISOString()
+      createdAt: nowIso
     };
 
-    const alreadyIssued = await withTimeout(
+    const noteContent = `已开具外贸形式发票报价单 [${quotation.quotationNumber}]，报价总额 $${quotation.totalAmountUsd.toLocaleString()} USD`;
+    const newNote: LeadFollowUpNote = sanitizeForFirestore({
+      id: `NOTE-${doc(collection(db, 'inquiries')).id.slice(0, 10)}`,
+      author: actor.name || '销售顾问',
+      content: noteContent,
+      createdAt: nowIso
+    });
+    const safeVal = Math.max(
+      0,
+      Math.min(1000000000, Math.round((Number(quotation.totalAmountUsd) || 0) * 100) / 100)
+    );
+
+    const { alreadyIssued, leadWriteback } = await withTimeout(
       runTransaction(db, async tx => {
         const existing = await tx.get(ref);
-        if (existing.exists()) return true;
+        const leadRef = draft.leadId ? doc(db, 'inquiries', draft.leadId) : null;
+        const leadSnap = leadRef ? await tx.get(leadRef) : null;
+
+        if (existing.exists()) {
+          return { alreadyIssued: true, leadWriteback: null };
+        }
+
         tx.set(ref, sanitizeQuotationForFirestore(quotation));
-        return false;
+
+        let wb: QuotationLeadWriteback | null = null;
+        if (leadRef && leadSnap && leadSnap.exists()) {
+          const leadData = leadSnap.data() || {};
+          const oldStage = (leadData.stage as LeadStage) || 'new';
+          const advanceStage = oldStage === 'new' || oldStage === 'following';
+          const nextStage: LeadStage = advanceStage ? 'quoted' : oldStage;
+          tx.update(leadRef, {
+            estimatedValueUsd: safeVal,
+            ...(advanceStage ? { stage: 'quoted' } : {}),
+            notes: arrayUnion(newNote),
+            followUpNotes: deleteField(),
+            updatedAt: nowIso
+          });
+          wb = {
+            leadId: leadRef.id,
+            estimatedValueUsd: safeVal,
+            oldStage,
+            newStage: nextStage,
+            note: newNote,
+            updatedAt: nowIso
+          };
+        }
+
+        return { alreadyIssued: false, leadWriteback: wb };
       }),
       ADMIN_OPERATION_TIMEOUT_MS
     );
@@ -141,6 +199,6 @@ export class QuotationDomainService {
     if (!alreadyIssued) {
       this.quotations = [quotation, ...this.quotations.filter(q => q.id !== id)];
     }
-    return { quotation, alreadyIssued };
+    return { quotation, alreadyIssued, leadWriteback };
   }
 }

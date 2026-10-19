@@ -441,7 +441,10 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         resource == null || resource.data.userId == request.auth.uid
       );
-      allow create, update: if isValidFavorite(request.resource.data);
+      allow create: if isValidFavorite(request.resource.data);
+      allow update: if isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        isValidFavorite(request.resource.data);
       allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
@@ -539,8 +542,18 @@ service cloud.firestore {
 
     // 7b. Quotations (issued Proforma Invoices):
     // - Any active staff may issue a quotation in their own name; it is immutable afterwards.
+    // - When `leadId` is present, sales reps may only link a pool lead or their own assigned lead.
     // - Super admins read all quotations; sales reps only read the ones they issued
     //   (client queries must filter `where('createdByUid', '==', uid)`).
+    function canStaffLinkLeadToQuotation(data) {
+      return !('leadId' in data) ||
+        isAdmin() ||
+        (
+          exists(/databases/$(database)/documents/inquiries/$(data.leadId)) &&
+          isPoolOrSelf(get(/databases/$(database)/documents/inquiries/$(data.leadId)).data.get('assignedStaffId', ''))
+        );
+    }
+
     match /quotations/{quotationId} {
       allow read: if isAdmin() ||
         (isActiveStaff() && (resource == null || resource.data.createdByUid == request.auth.uid));
@@ -548,7 +561,8 @@ service cloud.firestore {
         isValidQuotation(request.resource.data) &&
         request.resource.data.id == quotationId &&
         request.resource.data.createdByUid == request.auth.uid &&
-        request.resource.data.createdBy == get(staffDocPath()).data.name;
+        request.resource.data.createdBy == get(staffDocPath()).data.name &&
+        canStaffLinkLeadToQuotation(request.resource.data);
       allow update: if false;
       allow delete: if isAdmin();
     }

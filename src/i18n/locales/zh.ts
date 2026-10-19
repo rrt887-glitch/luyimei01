@@ -6,7 +6,7 @@ export const zh = {
     materials: '养护材料',
     equipment: '施工设备',
     process: '服务流程',
-    cases: '工程案例',
+    cases: '供货信息',
     contact: '定制寻源',
     favorites: '收藏',
     account: '账户',
@@ -25,6 +25,7 @@ export const zh = {
     photoHeading: '从材料到设备。每一个环节，都有专业支撑。',
     stats: {
       capital: '注册资本',
+      capitalValue: 2670,
       capitalUnit: '万元',
       stock: '常备现货储备',
       stockUnit: '吨',

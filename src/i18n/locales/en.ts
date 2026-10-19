@@ -8,7 +8,7 @@ export const en: typeof zh = {
     materials: 'Materials',
     equipment: 'Machinery',
     process: 'Workflow',
-    cases: 'Engineering Cases',
+    cases: 'Supply Info',
     contact: 'Custom Sourcing',
     favorites: 'Favorites',
     account: 'Account',
@@ -27,6 +27,7 @@ export const en: typeof zh = {
     photoHeading: 'From materials to machinery. Every step is backed by professional expertise.',
     stats: {
       capital: 'Registered Capital',
+      capitalValue: 26.7,
       capitalUnit: 'M CNY',
       stock: 'Ready Stock Capacity',
       stockUnit: 'Tons',

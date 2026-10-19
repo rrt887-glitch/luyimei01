@@ -321,6 +321,9 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       const fav = { id: 'fav_buyer1_0', productId: '0', userId: 'buyer1', createdAt: now() };
       await assertSucceeds(setDoc(doc(buyer, 'favorites', fav.id), fav));
       await assertFails(setDoc(doc(buyer, 'favorites', 'fav_x'), { ...fav, id: 'fav_x', userId: 'buyer2' }));
+      // Another buyer cannot overwrite buyer1's existing favorite doc even if they set userId to themselves
+      const buyer2 = asUser('buyer2', { email: 'buyer2@example.com' });
+      await assertFails(setDoc(doc(buyer2, 'favorites', fav.id), { ...fav, userId: 'buyer2' }));
 
       const customer = {
         id: 'CUST-buyer1',
@@ -369,9 +372,17 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       ...extra
     });
 
-    it('staff issue quotations only in their own name; quotations are immutable', async () => {
+    it('staff issue quotations only in their own name; quotations are immutable; leadId must belong to caller or pool', async () => {
       const repA = asUser('repA');
       await assertSucceeds(setDoc(doc(repA, 'quotations', 'PI-1'), quote('PI-1')));
+      await assertSucceeds(setDoc(doc(repA, 'quotations', 'PI-POOL'), quote('PI-POOL', { leadId: 'INQ-POOL' })));
+      await assertFails(setDoc(doc(repA, 'quotations', 'PI-COLLEAGUE'), quote('PI-COLLEAGUE', { leadId: 'INQ-B' })));
+      await assertSucceeds(
+        setDoc(
+          doc(asUser('admin'), 'quotations', 'PI-ADMIN-B'),
+          quote('PI-ADMIN-B', { leadId: 'INQ-B', createdBy: '超级管理员', createdByUid: 'admin' })
+        )
+      );
       await assertFails(setDoc(doc(repA, 'quotations', 'PI-2'), quote('PI-2', { createdByUid: 'repB' })));
       await assertFails(setDoc(doc(repA, 'quotations', 'PI-3'), quote('PI-3', { createdBy: '超级管理员' })));
       await assertFails(setDoc(doc(repA, 'quotations', 'PI-4'), quote('PI-4', { items: [] })));

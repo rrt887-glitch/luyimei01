@@ -60,13 +60,14 @@ export const Reveal: React.FC<RevealProps> = ({ as = 'div', index = 0, className
 };
 
 /** Counts up from 0 to `to` once visible; keeps the final formatting (grouping, suffix). */
-export const CountUp: React.FC<{ to: number; prefix?: string; suffix?: string; duration?: number; className?: string }> = ({
-  to,
-  prefix = '',
-  suffix = '',
-  duration = 1400,
-  className
-}) => {
+export const CountUp: React.FC<{
+  to: number;
+  decimals?: number;
+  prefix?: string;
+  suffix?: string;
+  duration?: number;
+  className?: string;
+}> = ({ to, decimals = 0, prefix = '', suffix = '', duration = 1400, className }) => {
   const [ref, inView] = useInViewOnce<HTMLSpanElement>();
   const [value, setValue] = useState(() => (prefersReducedMotion() ? to : 0));
   // Live data: later changes animate from the value currently shown, not from zero.
@@ -82,21 +83,28 @@ export const CountUp: React.FC<{ to: number; prefix?: string; suffix?: string; d
     let raf = 0;
     const from = shownRef.current;
     const start = performance.now();
+    const factor = Math.pow(10, decimals);
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - t, 4);
-      setValue(Math.round(from + (to - from) * eased));
+      setValue(Math.round((from + (to - from) * eased) * factor) / factor);
       if (t < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [inView, to, duration]);
+  }, [inView, to, decimals, duration]);
+
+  const fmt = (n: number) =>
+    n.toLocaleString('en-US', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    });
 
   return (
-    <span ref={ref} className={className} aria-label={`${prefix}${to.toLocaleString('en-US')}${suffix}`}>
+    <span ref={ref} className={className} aria-label={`${prefix}${fmt(to)}${suffix}`}>
       <span aria-hidden="true">
         {prefix}
-        {value.toLocaleString('en-US')}
+        {fmt(value)}
         {suffix}
       </span>
     </span>

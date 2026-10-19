@@ -8,7 +8,7 @@ export const ru: typeof zh = {
     materials: 'Материалы',
     equipment: 'Оборудование',
     process: 'Процесс',
-    cases: 'Проекты',
+    cases: 'Условия поставки',
     contact: 'Индивидуальный заказ',
     favorites: 'Избранное',
     account: 'Кабинет',
@@ -27,6 +27,7 @@ export const ru: typeof zh = {
     photoHeading: 'От материалов до техники: надежная поддержка на каждом этапе.',
     stats: {
       capital: 'Уставный капитал',
+      capitalValue: 26.7,
       capitalUnit: 'млн CNY',
       stock: 'Складской резерв',
       stockUnit: 'тонн+',

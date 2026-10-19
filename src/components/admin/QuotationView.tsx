@@ -450,13 +450,18 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
 
   const handlePrint = async () => {
     if (!outputRef.current || busy) return;
-    const number = quotationNumber;
-    const issued = await issue();
-    if (!issued) return;
-    printSheet(outputRef.current, pdfName(clientCompany || clientName, number).replace(/\.pdf$/, ''));
-    adminApi.addAuditLog('打印报价单', number, `客户 ${clientCompany || clientName}｜金额 $${money(total)}`);
-    onShowToast('在打印窗口把打印机选为「另存为 PDF」，得到的是可复制文字的 PDF');
-    setQuotationNumber(generateQuotationNumber());
+    setBusy(true);
+    try {
+      const number = quotationNumber;
+      const issued = await issue();
+      if (!issued) return;
+      printSheet(outputRef.current, pdfName(clientCompany || clientName, number).replace(/\.pdf$/, ''));
+      adminApi.addAuditLog('打印报价单', number, `客户 ${clientCompany || clientName}｜金额 $${money(total)}`);
+      onShowToast('在打印窗口把打印机选为「另存为 PDF」，得到的是可复制文字的 PDF');
+      setQuotationNumber(generateQuotationNumber());
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Re-download / reprint an issued quotation exactly as it was issued.

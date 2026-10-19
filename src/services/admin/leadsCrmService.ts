@@ -485,7 +485,7 @@ export class LeadsCrmDomainService {
     const lead = this.leads.find(l => l.id === leadId);
     if (!lead) return null;
 
-    const safeVal = Math.max(0, Math.min(100000000, Math.round(Number(estimatedValueUsd) || 0)));
+    const safeVal = Math.max(0, Math.min(1000000000, Math.round((Number(estimatedValueUsd) || 0) * 100) / 100));
     const oldVal = lead.estimatedValueUsd || 0;
     const nowStr = new Date().toISOString();
 
@@ -509,6 +509,56 @@ export class LeadsCrmDomainService {
     );
 
     return { lead: { ...lead }, oldVal };
+  }
+
+  /**
+   * Updates the local lead cache and records audit trail after an atomic quotation+lead transaction commits.
+   */
+  syncLeadFromQuotationWriteback(
+    wb: {
+      leadId: string;
+      estimatedValueUsd: number;
+      oldStage?: LeadStage;
+      newStage?: LeadStage;
+      note: LeadFollowUpNote;
+      updatedAt: string;
+    },
+    currentStaff: StaffAccount | null
+  ): void {
+    const lead = this.leads.find(l => l.id === wb.leadId);
+    const oldVal = lead?.estimatedValueUsd || 0;
+    const targetName = lead ? `${lead.customerName} (${lead.id})` : wb.leadId;
+
+    if (lead) {
+      lead.estimatedValueUsd = wb.estimatedValueUsd;
+      if (wb.newStage) lead.stage = wb.newStage;
+      const updatedNotes = [...(lead.notes || []), wb.note];
+      lead.notes = updatedNotes;
+      lead.followUpNotes = updatedNotes;
+      lead.updatedAt = wb.updatedAt;
+      this.saveReadOnlyLeadsCache();
+    }
+
+    this.auditLogger.logAction(
+      currentStaff,
+      '报价单回写商机金额',
+      targetName,
+      `商机估值由 $${oldVal.toLocaleString()} 调整为 $${wb.estimatedValueUsd.toLocaleString()} USD`
+    );
+    if (wb.oldStage && wb.newStage && wb.oldStage !== wb.newStage) {
+      this.auditLogger.logAction(
+        currentStaff,
+        '更新线索阶段',
+        targetName,
+        `阶段：${getStage(wb.oldStage).label} → ${getStage(wb.newStage).label}`
+      );
+    }
+    this.auditLogger.logAction(
+      currentStaff,
+      '添加线索跟进记录',
+      targetName,
+      wb.note.content.slice(0, 60)
+    );
   }
 
   /**

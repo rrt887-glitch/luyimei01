@@ -564,11 +564,11 @@ class AdminApiService {
     const lead = draft.leadId ? this.leadsService.getAllLeadsRaw().find(l => l.id === draft.leadId) : undefined;
     const enrichedDraft: QuotationDraft = {
       ...draft,
-      leadId: lead?.id,
+      leadId: lead?.id || draft.leadId,
       customerId: lead?.customerId // informational; the server re-derives it from the lead
     };
 
-    const { quotation, alreadyIssued } = await this.quotationService.issueQuotation(enrichedDraft, actor);
+    const { quotation, alreadyIssued, leadWriteback } = await this.quotationService.issueQuotation(enrichedDraft, actor);
     if (alreadyIssued) {
       return { quotation, alreadyIssued, crmSynced: false };
     }
@@ -581,16 +581,8 @@ class AdminApiService {
     );
 
     let crmSynced = false;
-    if (lead) {
-      await this.leadsService.updateLeadEstimatedValue(lead.id, quotation.totalAmountUsd, actor, '报价单回写商机金额');
-      if (lead.stage === 'new' || lead.stage === 'following') {
-        await this.leadsService.updateLeadStage(lead.id, 'quoted', actor);
-      }
-      await this.leadsService.addLeadFollowUpNote(
-        lead.id,
-        `已开具外贸形式发票报价单 [${quotation.quotationNumber}]，报价总额 $${quotation.totalAmountUsd.toLocaleString()} USD`,
-        actor
-      );
+    if (leadWriteback) {
+      this.leadsService.syncLeadFromQuotationWriteback(leadWriteback, actor);
       // customers/{id}.totalQuotationUsd is incremented server-side by the onQuotationCreated function.
       crmSynced = true;
     }

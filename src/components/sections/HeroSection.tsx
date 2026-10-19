@@ -17,7 +17,11 @@ export const HeroSection: React.FC = () => {
   const { d } = useI18n();
 
   const stats = [
-    { value: <CountUp to={2670} />, unit: d.hero.stats.capitalUnit, label: d.hero.stats.capital },
+    {
+      value: <CountUp to={d.hero.stats.capitalValue} decimals={d.hero.stats.capitalValue % 1 ? 1 : 0} />,
+      unit: d.hero.stats.capitalUnit,
+      label: d.hero.stats.capital
+    },
     { value: <CountUp to={500} suffix="+" />, unit: d.hero.stats.stockUnit, label: d.hero.stats.stock },
     { value: <CountUp to={13} />, unit: d.hero.stats.patents, label: d.hero.stats.patentsDesc },
     { value: '7×24', unit: d.hero.stats.response, label: d.hero.stats.responseDesc }

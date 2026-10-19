@@ -31,7 +31,7 @@ const app = initializeApp();
 
 // Must match `firestoreDatabaseId` in firebase-applet-config.json (checked by tests/config.consistency.test.ts).
 const FIRESTORE_DATABASE_ID =
-  process.env.FIRESTORE_DATABASE_ID || 'ai-studio-cardcorner-bf216942-1486-4ef1-bcb0-4a7b0673efe2';
+  process.env.FIRESTORE_DATABASE_ID || 'ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad';
 
 // Must match STAFF_AUTH_EMAIL_DOMAIN in src/config/appConfig.ts.
 const STAFF_AUTH_EMAIL_DOMAIN = 'auth.luyimei.com';
@@ -550,7 +550,9 @@ export const onQuotationCreated = onDocumentCreated(
     if (!snap) return;
     const quotation = snap.data() || {};
     const leadId = String(quotation.leadId || '').trim();
-    const amount = Math.max(0, Math.round(Number(quotation.totalAmountUsd) || 0));
+    const createdByUid = String(quotation.createdByUid || '').trim();
+    const rawAmount = Number(quotation.totalAmountUsd);
+    const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? Math.round(rawAmount * 100) / 100 : 0;
     if (!leadId || amount <= 0) return;
 
     const markerRef = adminDb.collection('_processed_events').doc(`quotation_${event.params.quotationId}`);
@@ -559,7 +561,18 @@ export const onQuotationCreated = onDocumentCreated(
       if (marker.exists) return; // already applied (trigger retry)
 
       const leadSnap = await tx.get(adminDb.collection('inquiries').doc(leadId));
-      const customerId = leadSnap.exists ? String(leadSnap.get('customerId') || '') : '';
+      let customerId = '';
+      if (leadSnap.exists) {
+        const assignedStaffId = String(leadSnap.get('assignedStaffId') || '').trim();
+        let canCredit = !assignedStaffId || assignedStaffId === createdByUid;
+        if (!canCredit && createdByUid) {
+          const staffSnap = await tx.get(adminDb.collection('staff').doc(createdByUid));
+          canCredit = staffSnap.exists && staffSnap.get('role') === 'super_admin' && staffSnap.get('status') === 'active';
+        }
+        if (canCredit) {
+          customerId = String(leadSnap.get('customerId') || '');
+        }
+      }
       if (customerId) {
         const custRef = adminDb.collection('customers').doc(customerId);
         const custSnap = await tx.get(custRef);
