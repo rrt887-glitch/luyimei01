@@ -165,3 +165,22 @@ describe('HTTP security response headers are configured across Firebase Hosting,
   });
 });
 
+describe('package-lock.json installs on every platform', () => {
+  // Tools that regenerate the lock on one machine (e.g. Linux only) can drop the optional native
+  // packages of other platforms; npm 11 then refuses `npm ci` ("Missing: … from lock file").
+  it('keeps the optional native builds for Windows, macOS and Linux', () => {
+    const lock = JSON.parse(read('package-lock.json'));
+    const pkgs = Object.keys(lock.packages || {});
+    for (const name of [
+      '@rolldown/binding-win32-x64-msvc',
+      '@rolldown/binding-darwin-arm64',
+      '@rolldown/binding-linux-x64-gnu',
+      '@tailwindcss/oxide-win32-x64-msvc',
+      '@tailwindcss/oxide-darwin-arm64',
+      '@tailwindcss/oxide-linux-x64-gnu'
+    ]) {
+      expect(pkgs.some(p => p.endsWith(`node_modules/${name}`)), `${name} missing from package-lock.json — regenerate it with npm 11: npm install --package-lock-only`).toBe(true);
+    }
+  });
+});
+

@@ -120,16 +120,21 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
     }
   };
 
+  const SortButton: React.FC<{ k: SortKey; children: React.ReactNode; end?: boolean }> = ({ k, children, end }) => (
+    <button type="button" onClick={() => sortBy(k)} className={`inline-flex items-center gap-1 whitespace-nowrap hover:text-night ${end ? 'flex-row-reverse' : ''}`}>
+      {children}
+      {sortKey === k ? (
+        sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
+      ) : (
+        <ChevronsUpDown className="w-3.5 h-3.5 text-slate-300" />
+      )}
+    </button>
+  );
   const SortHeader: React.FC<{ k: SortKey; children: React.ReactNode; className?: string }> = ({ k, children, className = '' }) => (
     <th className={className} aria-sort={sortKey === k ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button type="button" onClick={() => sortBy(k)} className={`inline-flex items-center gap-1 hover:text-night ${className.includes('text-end') ? 'flex-row-reverse' : ''}`}>
+      <SortButton k={k} end={className.includes('text-end')}>
         {children}
-        {sortKey === k ? (
-          sortDir === 'asc' ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronsUpDown className="w-3.5 h-3.5 text-slate-300" />
-        )}
-      </button>
+      </SortButton>
     </th>
   );
 
@@ -159,7 +164,9 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
       )}
 
       <div className="overflow-x-auto">
-        <table className="tbl min-w-[1120px]">
+        {/* Sized to fit a 1366 px laptop screen without scrolling; narrower screens scroll sideways,
+            with the row actions pinned to the right edge so they are always reachable. */}
+        <table className="tbl tbl-leads min-w-[960px]">
           <thead>
             <tr>
               <th className="w-10">
@@ -182,9 +189,13 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
               </SortHeader>
               <SortHeader k="stage">阶段</SortHeader>
               <SortHeader k="owner">负责人</SortHeader>
-              <SortHeader k="lastFollowUp">最近跟进</SortHeader>
-              <SortHeader k="createdAt">提交</SortHeader>
-              <th>
+              <th aria-sort={sortKey === 'lastFollowUp' || sortKey === 'createdAt' ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <div className="flex flex-col items-start gap-0.5">
+                  <SortButton k="lastFollowUp">最近跟进</SortButton>
+                  <SortButton k="createdAt">提交时间</SortButton>
+                </div>
+              </th>
+              <th className="col-actions">
                 <span className="sr-only">操作</span>
               </th>
             </tr>
@@ -205,17 +216,17 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                       aria-label={`选择 ${lead.customerName}`}
                     />
                   </td>
-                  <td className="max-w-[14rem]">
-                    <button type="button" onClick={() => onOpenNotes(lead)} className="font-semibold text-night hover:text-sky-deep truncate block max-w-full text-start">
+                  <td className="max-w-[10rem]">
+                    <button type="button" onClick={() => onOpenNotes(lead)} className="font-semibold text-night hover:text-sky-deep truncate block max-w-full text-start" title={lead.customerName}>
                       {lead.customerName}
                     </button>
-                    <div className="text-xs text-slate-500 truncate">{lead.company || <span className="font-sign text-slate-400">{lead.id}</span>}</div>
+                    <div className="text-xs text-slate-500 truncate" title={lead.company || lead.id}>{lead.company || <span className="font-sign text-slate-400">{lead.id}</span>}</div>
                   </td>
-                  <td className="font-sign text-[13px] text-slate-700 whitespace-nowrap max-w-[12rem] truncate" title={lead.phone}>
+                  <td className="font-sign text-[13px] text-slate-700 whitespace-nowrap max-w-[8.25rem] truncate" title={lead.phone}>
                     {lead.phone}
                   </td>
-                  <td className="max-w-[14rem]">
-                    <div className="text-night truncate">{lead.needType}</div>
+                  <td className="max-w-[8.25rem]">
+                    <div className="text-night truncate" title={lead.needType}>{lead.needType}</div>
                     <div className="text-xs text-slate-500 truncate" title={lead.message}>
                       {lead.location || lead.message}
                     </div>
@@ -230,7 +241,7 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                     <select
                       value={lead.stage}
                       onChange={e => onStageChange(lead.id, e.target.value as LeadStage)}
-                      className="field field-sm !min-h-8 w-[7.5rem]"
+                      className="field field-sm !min-h-8 w-[6.25rem]"
                       style={{ boxShadow: `inset 3px 0 0 ${STAGE_BAR_COLORS[lead.stage]}` }}
                       aria-label="阶段"
                     >
@@ -246,7 +257,8 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                       value={lead.assignedStaffId || ''}
                       onChange={e => onAssignStaff(lead.id, e.target.value)}
                       disabled={ownerLocked}
-                      className="field field-sm !min-h-8 w-[8.5rem] disabled:bg-concrete"
+                      className="field field-sm !min-h-8 !text-[13px] w-[8.75rem] disabled:bg-concrete"
+                      title={lead.assignedStaffName || '公海'}
                       aria-label="负责人"
                     >
                       <option value="">公海</option>
@@ -259,13 +271,15 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                       ))}
                     </select>
                   </td>
-                  <td className="text-[13px] text-slate-500 whitespace-nowrap" title={lastNote}>
-                    {lastNote ? formatRelativeTime(lastNote) : '—'}
+                  <td className="text-[13px] whitespace-nowrap leading-snug min-w-[6rem]">
+                    <div className="text-slate-600" title={lastNote ? `最近跟进 ${lastNote}` : '还没有跟进记录'}>
+                      {lastNote ? formatRelativeTime(lastNote) : '未跟进'}
+                    </div>
+                    <div className="text-xs text-slate-400" title={`提交 ${lead.createdAt}`}>
+                      提交 {formatRelativeTime(lead.createdAt)}
+                    </div>
                   </td>
-                  <td className="text-[13px] text-slate-500 whitespace-nowrap" title={lead.createdAt}>
-                    {formatRelativeTime(lead.createdAt)}
-                  </td>
-                  <td>
+                  <td className="col-actions">
                     <div className="flex items-center justify-end gap-0.5">
                       {onCreateQuotationForLead && (
                         <button type="button" onClick={() => onCreateQuotationForLead(lead)} className="icon-btn" aria-label="开报价单" title="开报价单">
