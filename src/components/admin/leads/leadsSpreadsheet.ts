@@ -2,6 +2,7 @@ import { AdminLead, LeadStage, StaffAccount } from '../../../types/admin';
 import { LEAD_STAGES, getStage } from '../../../config/leadStages';
 import type { LeadImportItem } from '../../../services/admin/leadsCrmService';
 import { SheetSpec } from '../../../utils/xlsx';
+import { toCents } from '../../../utils/format';
 
 /**
  * Lead spreadsheet layout shared by the template, the export and the import.
@@ -136,6 +137,9 @@ export interface ParsedRow {
   ownerLabel: string;
 }
 
+/** name@domain.tld — a lone "@" or "a@b" is not an email. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 const contactKey = (raw: string) => {
   const s = raw.trim().toLowerCase();
   if (s.includes('@')) return s;
@@ -192,7 +196,7 @@ export function parseLeadRows(
     const phone = get(row, 'phone');
     if (!customerName) errors.push('缺少客户姓名');
     if (!phone) errors.push('缺少联系方式');
-    else if (!phone.includes('@') && phone.replace(/\D/g, '').length < 5) errors.push('联系方式不像电话或邮箱');
+    else if (phone.includes('@') ? !EMAIL_RE.test(phone) : phone.replace(/\D/g, '').length < 5) errors.push('联系方式不像电话或邮箱');
 
     const stageText = get(row, 'stage');
     let stage: LeadStage = 'new';
@@ -224,10 +228,13 @@ export function parseLeadRows(
     if (valueText) {
       const n = Number(valueText);
       if (!Number.isFinite(n) || n < 0) errors.push(`预估金额「${get(row, 'value')}」不是数字`);
-      else if (n > 0) estimatedValueUsd = n;
+      else if (n > 1000000000) errors.push(`预估金额「${get(row, 'value')}」超过 10 亿美元上限`);
+      else if (n > 0) estimatedValueUsd = toCents(n);
     }
 
-    const key = contactKey(phone);
+    // Only a row that will actually be imported claims its number: a row with errors is skipped,
+    // so a later valid row with the same number is not a duplicate of it.
+    const key = errors.length ? '' : contactKey(phone);
     const duplicateOf = key ? seen.get(key) : undefined;
     if (key && !duplicateOf) seen.set(key, `第 ${headerIndex + 2 + offset} 行`);
 

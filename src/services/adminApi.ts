@@ -123,7 +123,9 @@ class AdminApiService {
 
     await persistProductUpdate(newProduct);
 
-    this.products.unshift(newProduct);
+    // The real-time listener may already have delivered this product (Firestore fires the local
+    // write before setDoc resolves), so put it in place instead of adding a second copy.
+    this.products = [newProduct, ...this.products.filter(p => p.id !== newProduct.id)];
     this.auditService.logAction(
       actor,
       '新增目录商品',
