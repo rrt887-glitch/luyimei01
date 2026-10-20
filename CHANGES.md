@@ -16,6 +16,7 @@
 - **停用后撤权（#21）**：停用的管理员拿不到新许可，手上的旧许可最迟 15 分钟失效。
 - **离线队列回归（#38）**：v15.6 把“无权限”一律当作已送达，换了买家登录时会误删别人的待发询价。现在：别的买家排队的询价原样保留，等本人登录再发；本人的询价被拒时先查库，确实存在才清除；匿名访客的仍按“首次超时后再次被拒 = 已存在”处理。
 - **打印连点（#27）**：新增自动测试，连点 5 次只生成一张报价单、只开一个打印窗口、只下载一次。
+- **线上安全响应头（#8）**：AI Studio 部署时若没有自定义服务脚本，默认使用内置静态脚本托管 `dist/`，不会读取 `firebase.json` 的安全响应头。新增零依赖生产服务脚本 `server.js`（并在 `package.json` 配置 `"start": "node server.js"`）及 `vite.config.ts` 的 `server.headers` / `preview.headers`，使 AI Studio 预览与 Cloud Run 线上环境均返回完整的 HTTP 安全响应头（`Strict-Transport-Security`、`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`、`Permissions-Policy`、`Content-Security-Policy`、`Content-Security-Policy-Report-Only`）。
 
 ## v15.6 — #34–41
 

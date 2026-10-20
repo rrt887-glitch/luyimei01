@@ -112,3 +112,56 @@ describe('Buyer sign-up goes through the captcha functions', () => {
     expect(api).not.toContain('createUserWithEmailAndPassword');
   });
 });
+
+describe('HTTP security response headers are configured across Firebase Hosting, Vite, and Cloud Run server.js', () => {
+  it('src/config/securityHeaders.ts, server.js, and firebase.json define the same security headers', async () => {
+    const { SECURITY_HEADERS } = await import('../src/config/securityHeaders');
+    const serverMod = await import('../server.js');
+    expect(serverMod.SECURITY_HEADERS).toEqual(SECURITY_HEADERS);
+
+    const firebaseJson = JSON.parse(read('firebase.json'));
+    const globalRule = firebaseJson.hosting?.headers?.find((h: { source: string }) => h.source === '**');
+    expect(globalRule).toBeTruthy();
+    const firebaseHeaders = Object.fromEntries(
+      (globalRule.headers as { key: string; value: string }[]).map(h => [h.key, h.value])
+    );
+    expect(firebaseHeaders).toEqual(SECURITY_HEADERS);
+
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts?.start).toBe('node server.js');
+    expect(read('vite.config.ts')).toContain('headers: SECURITY_HEADERS');
+  });
+
+  it('server.js attaches all security headers and proper Cache-Control on HTTP responses', async () => {
+    const os = await import('node:os');
+    const { createAppServer, SECURITY_HEADERS } = await import('../server.js');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lym-srv-'));
+    fs.mkdirSync(path.join(tmpDir, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'index.html'), '<!doctype html><title>LYM</title>');
+    fs.writeFileSync(path.join(tmpDir, 'assets/app-123.js'), 'console.log(1);');
+
+    const srv = createAppServer(tmpDir);
+    await new Promise<void>(resolve => srv.listen(0, '127.0.0.1', resolve));
+    const addr = srv.address() as { port: number };
+    const base = `http://127.0.0.1:${addr.port}`;
+
+    try {
+      const htmlRes = await fetch(`${base}/`);
+      expect(htmlRes.status).toBe(200);
+      expect(htmlRes.headers.get('cache-control')).toBe('no-cache');
+      for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+        expect(htmlRes.headers.get(key.toLowerCase())).toBe(value);
+      }
+
+      const assetRes = await fetch(`${base}/assets/app-123.js`);
+      expect(assetRes.status).toBe(200);
+      expect(assetRes.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(assetRes.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(assetRes.headers.get('strict-transport-security')).toContain('max-age=31536000');
+    } finally {
+      await new Promise<void>(resolve => srv.close(() => resolve()));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
