@@ -49,8 +49,8 @@ const MainApp: React.FC = () => {
   const [adminSession, setAdminSession] = useState<StaffAccount | null>(readAdminSession);
 
   const [products, setProducts] = useState<Product[]>(() => {
-    const cached = loadReadOnlyCachedProducts();
-    return (cached.length ? cached : initialProducts).filter(p => !p.isDeleted);
+    // Built-in catalogue only on a first visit (no cache yet); an empty cached list stays empty.
+    return loadReadOnlyCachedProducts().filter(p => !p.isDeleted);
   });
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<ProductFilterCategory>('all');
@@ -97,6 +97,9 @@ const MainApp: React.FC = () => {
   }, []);
 
   const enterConsole = useCallback((staff: StaffAccount) => {
+    // Signing in as staff replaces any buyer signed in in this browser: drop that buyer's profile
+    // so the website does not keep showing it next to the staff account.
+    api.clearBuyerSession();
     setAdminSession(staff);
     setViewMode('admin');
   }, []);
@@ -149,7 +152,11 @@ const MainApp: React.FC = () => {
       const saved = await api.toggleFavorite(id, savedIds.has(id));
       showToast(saved ? d.misc.favAdded : d.misc.favRemoved);
     } catch (error) {
-      console.error('Cloud favorite sync error:', error);
+      if ((error as Error)?.name === 'FavoritePendingError') {
+        showToast(d.misc.favPending);
+        return;
+      }
+      console.warn('Cloud favorite sync error:', error);
       showToast(d.misc.favFailed);
     } finally {
       setSyncingFavId(null);

@@ -424,22 +424,40 @@ export const adminDeleteStaff = onCall(async request => {
 //      * sales receive a group-robot notification for new website inquiries.
 // ---------------------------------------------------------------------------
 
+/**
+ * Email -> document-ID key. Letters and digits stay, every other character becomes "-" plus its
+ * code, so different addresses never share a key: "a.b@x.com" -> "a-2eb-40x-2ecom" while
+ * "a_b@x.com" -> "a-5fb-40x-2ecom". (The old key turned every symbol into "_" and merged them.)
+ */
+function emailKey(email: string): string {
+  return Array.from(email.toLowerCase())
+    .map(ch => (/[a-z0-9]/.test(ch) ? ch : `-${ch.codePointAt(0)!.toString(16)}`))
+    .join('')
+    .slice(0, 400);
+}
+
+/** Key used before v15.6; still honoured for customers created with it, if the email matches exactly. */
+function legacyEmailKey(email: string): string {
+  return email.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 100);
+}
+
 function customerIdForInquiry(data: Record<string, any>): string | null {
   const buyerUid = String(data.buyerUid || '').trim();
   if (buyerUid) return `CUST-${buyerUid}`;
 
   const contact = String(data.phone || '').trim();
   if (contact.includes('@')) {
-    const key = contact.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 100);
+    const key = emailKey(contact);
     return key ? `CUST-MAIL-${key}` : null;
   }
   const digits = normalizePhoneDigits(contact);
   return digits.length >= 6 ? `CUST-TEL-${digits}` : null;
 }
 
-async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): Promise<void> {
+/** Returns true when the webhook accepted the message (or no webhook is configured). */
+async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): Promise<boolean> {
   const url = NOTIFY_WEBHOOK_URL.value();
-  if (!url) return;
+  if (!url) return true;
   const lines = [
     '【官网新询价】',
     `客户：${data.customerName || data.name || '-'}${data.company ? `（${data.company}）` : ''}`,
@@ -453,26 +471,64 @@ async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): P
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ msgtype: 'text', text: { content: lines.join('\n') } })
+      body: JSON.stringify({ msgtype: 'text', text: { content: lines.join('\n') } }),
+      signal: AbortSignal.timeout(10_000)
     });
     if (!res.ok) console.warn(`Inquiry notification HTTP ${res.status}`);
+    return res.ok;
   } catch (err) {
     console.warn('Inquiry notification failed:', err);
+    return false;
   }
 }
 
+/** A failed event is redelivered (retry: true) only this long; after that it is logged and dropped. */
+const EVENT_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
+const isTooOld = (eventTime: string) => Date.now() - Date.parse(eventTime) > EVENT_RETRY_WINDOW_MS;
+
+const processedRef = (id: string) => adminDb.collection('_processed_events').doc(id);
+
+/**
+ * Sends the new-inquiry notification at most once. The marker is written only AFTER the webhook
+ * accepted the message; a failure throws, so the event is redelivered and the message sent then.
+ */
+async function notifyOnce(inquiryId: string, data: Record<string, any>, eventTime: string): Promise<void> {
+  const ref = processedRef(`inquiry_notify_${inquiryId}`);
+  if ((await ref.get()).exists) return;
+  if (await notifyNewInquiry(inquiryId, data)) {
+    await ref.set({ processedAt: new Date().toISOString() });
+    return;
+  }
+  if (isTooOld(eventTime)) {
+    console.error(`Inquiry ${inquiryId}: notification still failing after ${EVENT_RETRY_WINDOW_MS / 3600000} h, giving up.`);
+    return;
+  }
+  throw new Error(`Inquiry ${inquiryId}: notification failed, will retry`);
+}
+
 export const onInquiryCreated = onDocumentCreated(
-  { document: 'inquiries/{inquiryId}', database: FIRESTORE_DATABASE_ID },
+  { document: 'inquiries/{inquiryId}', database: FIRESTORE_DATABASE_ID, retry: true },
   async event => {
     const snap = event.data;
     if (!snap) return;
     const inquiryId = event.params.inquiryId;
     const initial = snap.data() || {};
-    const customerId = customerIdForInquiry(initial);
     const nowIso = new Date().toISOString();
     const today = nowIso.slice(0, 10);
+    const contact = String(initial.phone || '').trim();
+    const isEmail = contact.includes('@');
 
-    let linkedNow = false;
+    let customerId = customerIdForInquiry(initial);
+    // Customers created before v15.6 under the old email key keep that archive, but only when it
+    // really is the same address (the old key merged e.g. a.b@x.com and a_b@x.com).
+    if (customerId && isEmail && !initial.buyerUid) {
+      const legacy = await adminDb.collection('customers').doc(`CUST-MAIL-${legacyEmailKey(contact)}`).get();
+      if (legacy.exists && String(legacy.get('email') || '').trim().toLowerCase() === contact.toLowerCase()) {
+        customerId = legacy.id;
+      }
+    }
+
+    let linked = false;
     await adminDb.runTransaction(async tx => {
       const inqSnap = await tx.get(snap.ref);
       if (!inqSnap.exists) return;
@@ -487,8 +543,6 @@ export const onInquiryCreated = onDocumentCreated(
       if (customerId && !inq.customerId) {
         const custRef = adminDb.collection('customers').doc(customerId);
         const custSnap = await tx.get(custRef);
-        const contact = String(inq.phone || '').trim();
-        const isEmail = contact.includes('@');
 
         if (custSnap.exists) {
           const cust = custSnap.data() || {};
@@ -518,38 +572,36 @@ export const onInquiryCreated = onDocumentCreated(
           });
         }
         inquiryPatch.customerId = customerId;
-        linkedNow = true;
       }
 
       if (Object.keys(inquiryPatch).length > 0) {
         tx.update(snap.ref, inquiryPatch);
       }
+      linked = Boolean(inq.customerId || inquiryPatch.customerId);
     });
 
-    // Notify only for website inquiries (manual leads are entered by staff themselves),
-    // and only on the first successful processing to avoid duplicate pings on retries.
+    // A quotation may have been issued before this lead had a customer: credit it now.
+    if (linked) await creditPendingQuotations(inquiryId);
+
+    // Notify only for website inquiries (manual leads are entered by staff themselves).
     const isWebsiteInquiry = !(Array.isArray(initial.notes) && initial.notes.length > 0);
-    if (isWebsiteInquiry && (linkedNow || !customerId)) {
-      // A redelivered event for an inquiry without a customer would ping again: claim the
-      // notification once with create(), which fails if this inquiry was already announced.
-      const claimed = await adminDb
-        .collection('_processed_events')
-        .doc(`inquiry_notify_${inquiryId}`)
-        .create({ processedAt: nowIso })
-        .then(() => true)
-        .catch(() => false);
-      if (claimed) await notifyNewInquiry(inquiryId, initial);
-    }
+    if (isWebsiteInquiry) await notifyOnce(inquiryId, initial, event.time);
   }
 );
 
 // ---------------------------------------------------------------------------
 // 6. onQuotationCreated
 //    customers/{id}.totalQuotationUsd is the sum of ISSUED quotations. Sales reps cannot write the
-//    customer archive (super-admin only), so the increment happens here. The customer is taken from
-//    the linked LEAD (never trusted from the quotation payload). Quotations are immutable, so an
-//    idempotency marker in `_processed_events` (server-only, denied to clients by the default rule)
-//    guarantees a trigger retry never counts the same quotation twice.
+//    customer archive (super-admin only), so the increment happens here.
+//
+//    * Who may link a quotation to a lead is decided when the quotation is CREATED (firestore.rules:
+//      the lead must be the issuer's own or in the pool). Quotations are immutable, so the trigger
+//      trusts quotation.leadId and does not re-check the lead's current owner: a lead handed to a
+//      colleague between issuing and processing is still credited.
+//    * The customer comes from the lead. If the lead has no customer yet (the inquiry trigger has
+//      not linked it), the quotation is recorded as "pending" and credited by onInquiryCreated
+//      once the link exists, or by a redelivery of this event.
+//    * A marker in `_processed_events` (server-only) per quotation makes every path idempotent.
 // ---------------------------------------------------------------------------
 /** Cents, half away from zero (1.005 -> 1.01); same rule as src/utils/format.ts toCents. */
 function toCents(value: number): number {
@@ -557,48 +609,67 @@ function toCents(value: number): number {
   return (Math.sign(value) * cents) / 100;
 }
 
-export const onQuotationCreated = onDocumentCreated(
-  { document: 'quotations/{quotationId}', database: FIRESTORE_DATABASE_ID },
-  async event => {
-    const snap = event.data;
-    if (!snap) return;
-    const quotation = snap.data() || {};
-    const leadId = String(quotation.leadId || '').trim();
-    const createdByUid = String(quotation.createdByUid || '').trim();
-    const rawAmount = Number(quotation.totalAmountUsd);
+type CreditResult = 'credited' | 'already' | 'pending' | 'skipped';
+
+async function creditQuotation(quotationId: string): Promise<CreditResult> {
+  const quotationRef = adminDb.collection('quotations').doc(quotationId);
+  const markerRef = processedRef(`quotation_${quotationId}`);
+  return adminDb.runTransaction(async tx => {
+    const marker = await tx.get(markerRef);
+    if (marker.exists && marker.get('status') !== 'pending') return 'already';
+
+    const qSnap = await tx.get(quotationRef);
+    if (!qSnap.exists) return 'skipped';
+    const leadId = String(qSnap.get('leadId') || '').trim();
+    const rawAmount = Number(qSnap.get('totalAmountUsd'));
     const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? toCents(rawAmount) : 0;
-    if (!leadId || amount <= 0) return;
+    if (!leadId || amount <= 0) {
+      tx.set(markerRef, { status: 'skipped', processedAt: new Date().toISOString() });
+      return 'skipped';
+    }
 
-    const markerRef = adminDb.collection('_processed_events').doc(`quotation_${event.params.quotationId}`);
-    await adminDb.runTransaction(async tx => {
-      const marker = await tx.get(markerRef);
-      if (marker.exists) return; // already applied (trigger retry)
+    const leadSnap = await tx.get(adminDb.collection('inquiries').doc(leadId));
+    const customerId = leadSnap.exists ? String(leadSnap.get('customerId') || '') : '';
+    const custRef = customerId ? adminDb.collection('customers').doc(customerId) : null;
+    const custSnap = custRef ? await tx.get(custRef) : null;
+    // A lead whose contact can never form a customer key will never get a customer: nothing to wait for.
+    if (!custRef && leadSnap.exists && !customerIdForInquiry(leadSnap.data() || {})) {
+      tx.set(markerRef, { status: 'skipped', leadId, processedAt: new Date().toISOString() });
+      return 'skipped';
+    }
+    if (!custRef || !custSnap?.exists) {
+      if (!marker.exists) tx.set(markerRef, { status: 'pending', leadId, amount, processedAt: new Date().toISOString() });
+      return 'pending';
+    }
 
-      const leadSnap = await tx.get(adminDb.collection('inquiries').doc(leadId));
-      let customerId = '';
-      if (leadSnap.exists) {
-        const assignedStaffId = String(leadSnap.get('assignedStaffId') || '').trim();
-        let canCredit = !assignedStaffId || assignedStaffId === createdByUid;
-        if (!canCredit && createdByUid) {
-          const staffSnap = await tx.get(adminDb.collection('staff').doc(createdByUid));
-          canCredit = staffSnap.exists && staffSnap.get('role') === 'super_admin' && staffSnap.get('status') === 'active';
-        }
-        if (canCredit) {
-          customerId = String(leadSnap.get('customerId') || '');
-        }
-      }
-      if (customerId) {
-        const custRef = adminDb.collection('customers').doc(customerId);
-        const custSnap = await tx.get(custRef);
-        if (custSnap.exists) {
-          tx.update(custRef, {
-            totalQuotationUsd: FieldValue.increment(amount),
-            lastActiveAt: new Date().toISOString().slice(0, 10)
-          });
-        }
-      }
-      tx.set(markerRef, { processedAt: new Date().toISOString(), customerId: customerId || null });
+    tx.update(custRef, {
+      totalQuotationUsd: FieldValue.increment(amount),
+      lastActiveAt: new Date().toISOString().slice(0, 10)
     });
+    tx.set(markerRef, { status: 'credited', leadId, customerId, amount, processedAt: new Date().toISOString() });
+    return 'credited';
+  });
+}
+
+/** Credits quotations of this lead that were waiting for the lead to get a customer. */
+async function creditPendingQuotations(leadId: string): Promise<void> {
+  // One equality filter (no composite index needed); a lead has only a handful of quotations.
+  const markers = await adminDb.collection('_processed_events').where('leadId', '==', leadId).get();
+  for (const doc of markers.docs) {
+    if (doc.get('status') === 'pending') await creditQuotation(doc.id.replace(/^quotation_/, ''));
+  }
+}
+
+export const onQuotationCreated = onDocumentCreated(
+  { document: 'quotations/{quotationId}', database: FIRESTORE_DATABASE_ID, retry: true },
+  async event => {
+    if (!event.data) return;
+    const result = await creditQuotation(event.params.quotationId);
+    // Still no customer on the lead: retry for a while (the inquiry trigger normally links it
+    // within seconds). After that the pending marker remains and onInquiryCreated settles it.
+    if (result === 'pending' && !isTooOld(event.time)) {
+      throw new Error(`Quotation ${event.params.quotationId}: lead has no customer yet, will retry`);
+    }
   }
 );
 

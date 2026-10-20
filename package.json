@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:emulator": "node scripts/run-emulator-tests.mjs",
     "cleanup:legacy": "node scripts/cleanup-legacy-data.mjs",
+    "repair:customers": "node scripts/repair-customer-links.mjs",
     "init:admin": "node scripts/init-super-admin.mjs"
   },
   "dependencies": {

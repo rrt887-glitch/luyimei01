@@ -364,6 +364,7 @@ export const zh = {
     favAdded: "已加入收藏",
     favRemoved: "已取消收藏",
     favFailed: "收藏没有保存成功，请检查网络后重试",
+    favPending: "已在本机更新收藏，网络恢复后会自动同步",
     syncFailed: "数据同步中断，请检查网络连接",
     accountTitle: "买家注册、登录与询价记录",
     heroAlt: "施工人员在高速公路上使用灌缝设备处理路面裂缝",

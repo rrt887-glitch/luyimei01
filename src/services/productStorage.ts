@@ -88,7 +88,9 @@ export function loadReadOnlyCachedProducts(): Product[] {
     const raw = localStorage.getItem(READONLY_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      // An empty list is a real state (every product taken down), not "no cache": falling back to
+      // the built-in catalogue here would bring removed products back until the cloud answers.
+      if (Array.isArray(parsed)) {
         return parsed.map(p => {
           const codeDef = initialProducts.find(cp => cp.id === p.id);
           return cleanProductMediaPlaceholders(p, codeDef);

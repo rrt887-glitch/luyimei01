@@ -44,11 +44,29 @@ export interface BuyerProfile {
   updatedAt?: string;
 }
 
+/**
+ * The signed-in Firebase user, but only if it is a BUYER. Staff sign in to the console with the
+ * same Firebase Auth in the same browser; their account must never be treated as a buyer (it
+ * would own inquiries submitted from the website and show them in the buyer centre).
+ */
+function buyerAuthUser(): { uid: string; email: string | null } | null {
+  const user = auth.currentUser;
+  if (!user) return null;
+  if (isReservedStaffEmail(user.email) || hasAdminSession()) return null;
+  return user;
+}
+
 export interface OutboxInquiryItem {
   record: InquiryRecord;
   payload: Record<string, any>;
   queuedAt: string;
   retryCount: number;
+  /**
+   * The first attempt timed out without an answer, so the server may already have saved it. A
+   * visitor can only CREATE an inquiry, so a later "permission-denied" for this id means exactly
+   * that: it exists, and the item is done.
+   */
+  maybeDelivered?: boolean;
 }
 
 /** Sign-up failure with a reason code (see functions/src/index.ts `signupError`). */
@@ -107,6 +125,14 @@ async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req
 const OUTBOX_STORAGE_KEY = 'lym_inquiry_outbox_v1';
 /** At most this many unsent inquiries are kept in one browser; beyond that new ones are refused, none dropped. */
 const OUTBOX_MAX_ITEMS = 100;
+
+/** A favorite was changed on this device but the server has not confirmed it yet. */
+export class FavoritePendingError extends Error {
+  constructor() {
+    super('favorite not confirmed yet');
+    this.name = 'FavoritePendingError';
+  }
+}
 
 /** The inquiry neither reached the server nor could be kept in this browser to send later. */
 export class InquiryNotSavedError extends Error {
@@ -245,14 +271,15 @@ class ApiService {
    * are never dropped to make room) or the browser would not store it. Then the visitor is told
    * the inquiry was NOT sent, instead of a "queued" message that is not true.
    */
-  private enqueueInquiryOutbox(record: InquiryRecord, payload: Record<string, any>): number {
+  private enqueueInquiryOutbox(record: InquiryRecord, payload: Record<string, any>, maybeDelivered = false): number {
     const queue = this.getOutboxQueue().filter(item => item.record.id !== record.id);
     if (queue.length >= OUTBOX_MAX_ITEMS) throw new InquiryNotSavedError('outbox_full');
     queue.unshift({
       record: { ...record, syncStatus: 'queued_local' },
       payload,
       queuedAt: new Date().toISOString(),
-      retryCount: 0
+      retryCount: 0,
+      maybeDelivered
     });
     if (!this.saveOutboxQueue(queue)) throw new InquiryNotSavedError('storage_unavailable');
     return queue.length;
@@ -284,7 +311,7 @@ class ApiService {
           // A visitor may only CREATE an inquiry. "permission-denied" on a retry means an earlier
           // attempt did reach the server (its reply was lost to the timeout) and the document
           // exists: it is delivered, keep no copy.
-          if ((err as { code?: string })?.code === 'permission-denied' && (item.retryCount || 0) > 0) {
+          if ((err as { code?: string })?.code === 'permission-denied' && (item.maybeDelivered || (item.retryCount || 0) > 0)) {
             done.add(item.record.id);
             this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
           } else {
@@ -326,8 +353,9 @@ class ApiService {
    * so closing the browser tab never loses favorites.
    */
   getCurrentBuyerId(): string {
-    if (auth.currentUser?.uid) {
-      return auth.currentUser.uid;
+    const buyer = buyerAuthUser();
+    if (buyer) {
+      return buyer.uid;
     }
     const user = this.getCurrentUser();
     if (user && user.id) {
@@ -424,7 +452,7 @@ class ApiService {
     };
 
     const authUnsub = onAuthStateChanged(auth, firebaseUser => {
-      if (firebaseUser?.uid) {
+      if (firebaseUser?.uid && buyerAuthUser()) {
         attachCloudListener(firebaseUser.uid);
       } else {
         if (firestoreUnsub) {
@@ -458,7 +486,7 @@ class ApiService {
     this.saveLocalFavorites(this.lastKnownFavs);
     this.notifyFavoritesChange();
 
-    const uid = auth.currentUser?.uid;
+    const uid = buyerAuthUser()?.uid;
     if (!uid) {
       return nextState;
     }
@@ -481,8 +509,18 @@ class ApiService {
       }
       return nextState;
     } catch (error) {
-      console.warn('Cloud favorite sync warning, retained in local storage:', error);
-      return nextState;
+      if (!(error as { code?: string })?.code) {
+        // Our timeout, not a server answer: the write is still queued in the Firestore SDK and the
+        // live listener already shows it, so keep it and say it will sync, not that it is saved.
+        console.warn('Favorite not confirmed yet, will sync when online:', error);
+        throw new FavoritePendingError();
+      }
+      // The server refused it: undo the local change so screen, storage and cloud agree.
+      if (currentlySaved) this.lastKnownFavs.add(productId);
+      else this.lastKnownFavs.delete(productId);
+      this.saveLocalFavorites(this.lastKnownFavs);
+      this.notifyFavoritesChange();
+      throw error;
     }
   }
 
@@ -507,8 +545,9 @@ class ApiService {
     const cleanId = `INQ-${doc(collection(db, 'inquiries')).id}`;
     const currentBuyer = this.getCurrentUser();
     // Strictly bind buyerUid ONLY to verified Firebase Auth session UID (prevents spoofing another buyer's UID)
-    const buyerUid = auth.currentUser?.uid || undefined;
-    const buyerEmail = auth.currentUser?.email || (buyerUid ? currentBuyer?.email : undefined);
+    // (Never a staff account signed in to the console in this browser.)
+    const buyerUid = buyerAuthUser()?.uid || undefined;
+    const buyerEmail = buyerUid ? buyerAuthUser()?.email || currentBuyer?.email : undefined;
 
     const cleanRecord: InquiryRecord = {
       id: cleanId,
@@ -562,7 +601,8 @@ class ApiService {
       };
     } catch (error) {
       console.warn('Cloud inquiry submission timed out or offline; persisting to local outbox queue:', error);
-      const pendingCount = this.enqueueInquiryOutbox(cleanRecord, payload);
+      // No error code = our timeout fired: the write may have reached the server after all.
+      const pendingCount = this.enqueueInquiryOutbox(cleanRecord, payload, !(error as { code?: string })?.code);
       this.recordUserInquiry({ ...cleanRecord, syncStatus: 'queued_local' }, buyerUid);
 
       return {
@@ -586,7 +626,23 @@ class ApiService {
         console.warn('Failed to parse user session:', e);
       }
     }
+    // The saved buyer profile is only valid while that buyer is the one signed in. Once someone
+    // else (e.g. staff, in the console) has signed in in this browser, it belongs to nobody.
+    const signedIn = auth.currentUser;
+    if (this.currentUser && signedIn && (signedIn.uid !== this.currentUser.id || !buyerAuthUser())) {
+      this.clearBuyerSession();
+    }
     return this.currentUser;
+  }
+
+  /** Forgets the saved buyer profile in this browser without signing anybody out of Firebase. */
+  clearBuyerSession(): void {
+    this.currentUser = null;
+    try {
+      localStorage.removeItem('lym_buyer_session');
+    } catch {
+      // Private mode: nothing was stored.
+    }
   }
 
   logout(): void {
@@ -819,15 +875,16 @@ class ApiService {
    * merging with any locally queued outbox inquiries so cross-device login always displays complete history.
    */
   async fetchUserInquiries(buyerId?: string): Promise<InquiryRecord[]> {
-    const uid = auth.currentUser?.uid || buyerId || this.getCurrentBuyerId();
+    const buyer = buyerAuthUser();
+    const uid = buyer?.uid || buyerId || this.getCurrentBuyerId();
     const localList = this.getUserInquiries(uid);
 
-    if (!auth.currentUser?.uid || uid.startsWith('guest_')) {
+    if (!buyer || uid.startsWith('guest_')) {
       return localList;
     }
 
     try {
-      const q = query(collection(db, 'inquiries'), where('buyerUid', '==', auth.currentUser.uid));
+      const q = query(collection(db, 'inquiries'), where('buyerUid', '==', buyer.uid));
       const snap = await withTimeout(getDocs(q), 6000);
       const cloudRecords: InquiryRecord[] = [];
 
@@ -845,7 +902,7 @@ class ApiService {
             // Staff progress the CRM `stage`; derive the buyer-facing status from it so buyers
             // see real progress instead of "pending" forever.
             status: buyerFacingStatus(d.stage, d.status),
-            buyerUid: d.buyerUid ? String(d.buyerUid) : auth.currentUser?.uid,
+            buyerUid: d.buyerUid ? String(d.buyerUid) : buyer.uid,
             buyerEmail: d.buyerEmail ? String(d.buyerEmail) : undefined,
             syncStatus: 'synced'
           });

@@ -65,8 +65,7 @@ class AdminApiService {
       });
     }
 
-    const cachedProducts = loadReadOnlyCachedProducts();
-    this.products = cachedProducts && cachedProducts.length > 0 ? cachedProducts : [...initialProducts];
+    this.products = loadReadOnlyCachedProducts();
   }
 
   private assertSuperAdminForProductWrite(): StaffAccount {

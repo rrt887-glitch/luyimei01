@@ -47,7 +47,10 @@ function customerIdForInquiry(data) {
   if (buyerUid) return `CUST-${buyerUid}`;
   const contact = String(data.phone || '').trim();
   if (contact.includes('@')) {
-    const key = contact.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 100);
+    const key = Array.from(contact.toLowerCase())
+      .map(ch => (/[a-z0-9]/.test(ch) ? ch : `-${ch.codePointAt(0).toString(16)}`))
+      .join('')
+      .slice(0, 400);
     return key ? `CUST-MAIL-${key}` : null;
   }
   const digits = normalizePhoneDigits(contact);

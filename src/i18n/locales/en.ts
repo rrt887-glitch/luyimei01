@@ -366,6 +366,7 @@ export const en: typeof zh = {
     favAdded: "Saved to favourites",
     favRemoved: "Removed from favourites",
     favFailed: "Could not save your favourite. Please check your connection and try again.",
+    favPending: "Updated on this device. It will sync when you are back online.",
     syncFailed: "Sync interrupted. Please check your connection.",
     accountTitle: "Buyer sign-up, sign-in and inquiry history",
     heroAlt: "Workers sealing cracks on a highway with crack-sealing equipment",
