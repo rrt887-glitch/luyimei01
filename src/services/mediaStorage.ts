@@ -14,6 +14,24 @@ export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const VIDEO_MAX_BYTES = 150 * 1024 * 1024;
 /** An upload that has not moved for this long is treated as a dropped connection. */
 const STALL_TIMEOUT_MS = 45_000;
+/** storage.rules accepts writes only with an ID token younger than 10 minutes; refresh well inside that. */
+const TOKEN_REFRESH_MS = 4 * 60_000;
+
+/**
+ * Gets a brand-new ID token from the server. Fails for an account that was suspended or deleted
+ * (it is disabled and its sessions revoked), which is exactly when uploading must stop.
+ */
+async function refreshStaffToken(): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw Object.assign(new Error('登录已过期，请重新登录后再上传。'), { code: 'lym/session-ended' });
+  try {
+    await user.getIdToken(true);
+  } catch (err) {
+    const code = String((err as { code?: string })?.code || '');
+    if (code === 'auth/network-request-failed') throw err;
+    throw Object.assign(new Error('账号已停用或登录已失效，不能上传。请重新登录。'), { code: 'lym/session-ended' });
+  }
+}
 
 export class UploadCancelledError extends Error {
   constructor() {
@@ -66,12 +84,16 @@ async function uploadWithProgress(
   signal?: AbortSignal
 ): Promise<string> {
   if (signal?.aborted) throw new UploadCancelledError();
+  await refreshStaffToken();
   const [{ ref, uploadBytesResumable, getDownloadURL }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
   const storageRef: StorageReference = ref(storage, path);
   const task = uploadBytesResumable(storageRef, data, { contentType, cacheControl: 'public, max-age=31536000' });
 
   return new Promise<string>((resolve, reject) => {
     let stalled: ReturnType<typeof setTimeout>;
+    // A long video outlives one token: keep it fresh so later chunks still pass storage.rules.
+    // A failed refresh (account suspended) is left to the rules, which then reject the next chunk.
+    const keepFresh = setInterval(() => void refreshStaffToken().catch(() => undefined), TOKEN_REFRESH_MS);
     let failure: Error | null = null;
     const armStallTimer = () => {
       clearTimeout(stalled);
@@ -95,11 +117,13 @@ async function uploadWithProgress(
       },
       err => {
         clearTimeout(stalled);
+        clearInterval(keepFresh);
         signal?.removeEventListener('abort', onAbort);
         reject(failure || err);
       },
       async () => {
         clearTimeout(stalled);
+        clearInterval(keepFresh);
         signal?.removeEventListener('abort', onAbort);
         try {
           resolve(await getDownloadURL(task.snapshot.ref));
@@ -203,6 +227,7 @@ export async function uploadProductVideo(
 export async function deleteUploadedMedia(urls: string[]): Promise<number> {
   const targets = urls.filter(url => url && url.includes('firebasestorage.googleapis.com'));
   if (!targets.length) return 0;
+  await refreshStaffToken().catch(() => undefined);
   const [{ ref, deleteObject }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
   let deleted = 0;
   for (const url of targets) {

@@ -18,12 +18,33 @@ function breakPoints(sheet: HTMLElement): number[] {
   return Array.from(new Set(points)).sort((a, b) => a - b);
 }
 
-export function paginate(points: number[], total: number): [number, number][] {
+/** The item table's header band and where the table ends, relative to the sheet. */
+interface TableHead {
+  top: number;
+  bottom: number;
+  tableBottom: number;
+}
+
+function tableHead(sheet: HTMLElement): TableHead | null {
+  const head = sheet.querySelector<HTMLElement>('.pi-items thead');
+  const table = sheet.querySelector<HTMLElement>('.pi-items');
+  if (!head || !table) return null;
+  const top = sheet.getBoundingClientRect().top;
+  const h = head.getBoundingClientRect();
+  return { top: Math.floor(h.top - top), bottom: Math.ceil(h.bottom - top), tableBottom: Math.ceil(table.getBoundingClientRect().bottom - top) };
+}
+
+/** A page that starts among the item rows repeats the column header on top, like the printed version. */
+export const repeatsHead = (start: number, head: TableHead | null) => !!head && start >= head.bottom && start < head.tableBottom - 1;
+
+export function paginate(points: number[], total: number, head: TableHead | null = null): [number, number][] {
   const pages: [number, number][] = [];
   let start = 0;
   while (start < total - 1) {
-    const room = (pages.length === 0 ? PAGE_H_PX : PAGE_H_PX - TOP_MARGIN_PX) - BOTTOM_MARGIN_PX;
-    const fits = points.filter(p => p > start && p - start <= room);
+    const headH = pages.length > 0 && repeatsHead(start, head) ? head!.bottom - head!.top : 0;
+    const room = (pages.length === 0 ? PAGE_H_PX : PAGE_H_PX - TOP_MARGIN_PX) - BOTTOM_MARGIN_PX - headH;
+    // Never end a page right under the column header (it would sit alone at the bottom).
+    const fits = points.filter(p => p > start && p - start <= room && (!head || p !== head.bottom));
     const end = fits.length ? fits[fits.length - 1] : Math.min(total, start + room);
     pages.push([start, end]);
     start = end;
@@ -70,6 +91,7 @@ export async function renderPdf(sheet: HTMLElement, piNumber: string): Promise<B
   const lib = pdfLib as unknown as { jsPDF?: typeof pdfLib.default; default: typeof pdfLib.default & { jsPDF?: typeof pdfLib.default } };
   const jsPDF = lib.jsPDF || lib.default.jsPDF || lib.default;
   const points = breakPoints(sheet);
+  const head = tableHead(sheet);
   const height = Math.ceil(sheet.getBoundingClientRect().height);
   const scale = 2;
   if (!sheet.id) sheet.id = `pi-sheet-${Date.now()}`;
@@ -90,18 +112,23 @@ export async function renderPdf(sheet: HTMLElement, piNumber: string): Promise<B
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   const mmPerPx = 210 / PAGE_W_PX;
-  const pages = paginate(points, height);
+  const pages = paginate(points, height, head);
   pages.forEach(([from, to], i) => {
     if (i > 0) pdf.addPage();
+    const headH = i > 0 && head && repeatsHead(from, head) ? head.bottom - head.top : 0;
     const slice = document.createElement('canvas');
     slice.width = canvas.width;
-    slice.height = Math.max(1, Math.round((to - from) * scale));
+    slice.height = Math.max(1, Math.round((headH + to - from) * scale));
     const ctx = slice.getContext('2d')!;
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, slice.width, slice.height);
-    ctx.drawImage(canvas, 0, Math.round(from * scale), canvas.width, slice.height, 0, 0, slice.width, slice.height);
+    if (headH && head) {
+      ctx.drawImage(canvas, 0, Math.round(head.top * scale), canvas.width, Math.round(headH * scale), 0, 0, slice.width, Math.round(headH * scale));
+    }
+    const bodyY = Math.round(headH * scale);
+    ctx.drawImage(canvas, 0, Math.round(from * scale), canvas.width, slice.height - bodyY, 0, bodyY, slice.width, slice.height - bodyY);
     const y = i === 0 ? 0 : TOP_MARGIN_PX * mmPerPx;
-    pdf.addImage(slice.toDataURL('image/jpeg', 0.94), 'JPEG', 0, y, 210, (to - from) * mmPerPx, undefined, 'FAST');
+    pdf.addImage(slice.toDataURL('image/jpeg', 0.94), 'JPEG', 0, y, 210, (headH + to - from) * mmPerPx, undefined, 'FAST');
     pdf.setFontSize(8);
     pdf.setTextColor(120);
     pdf.text(`${piNumber}  ·  Page ${i + 1} of ${pages.length}`, 105, 297 - 7, { align: 'center' });
@@ -113,7 +140,12 @@ export async function renderPdf(sheet: HTMLElement, piNumber: string): Promise<B
  * Opens the browser's print dialog for the sheet alone. Printing keeps real text (copyable,
  * searchable) — choose "Save as PDF" as the printer to get a text PDF.
  */
+let printPending = false;
+
 export function printSheet(sheet: HTMLElement, title: string): void {
+  // One print dialog at a time: repeated clicks while the frame is being prepared are ignored.
+  if (printPending) return;
+  printPending = true;
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   Object.assign(iframe.style, { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' });
@@ -121,6 +153,7 @@ export function printSheet(sheet: HTMLElement, title: string): void {
   const frameDoc = iframe.contentWindow?.document;
   if (!frameDoc) {
     iframe.remove();
+    printPending = false;
     window.print();
     return;
   }
@@ -142,5 +175,8 @@ export function printSheet(sheet: HTMLElement, title: string): void {
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
       setTimeout(() => iframe.remove(), 60_000);
+    })
+    .finally(() => {
+      printPending = false;
     });
 }

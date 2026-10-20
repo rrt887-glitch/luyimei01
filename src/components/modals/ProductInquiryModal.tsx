@@ -117,7 +117,8 @@ export const ProductInquiryModal: React.FC<ProductInquiryModalProps> = ({ produc
       setResult(res);
       if (res.syncedToCloud) onNotify(t.successTitle);
     } catch (err) {
-      setFailure((err as Error).message || d.account.errors.unknown);
+      // Not sent and not kept for later: say so in the visitor's language and point to direct contact.
+      setFailure((err as Error)?.name === 'InquiryNotSavedError' ? d.contact.direct.unexpected : (err as Error).message || d.account.errors.unknown);
     } finally {
       setBusy(false);
     }

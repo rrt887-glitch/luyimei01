@@ -15,8 +15,17 @@ service firebase.storage {
     // production, so we check server-managed Custom Claims (`role: 'super_admin', staff: true`,
     // kept in sync and revoked on suspension/deletion by `syncAuthWithStaffState` in Cloud Functions)
     // first, with `staffDocPath()` retained as fallback.
+    // Custom claims live in the ID token, which stays valid for up to an hour after a super admin
+    // is suspended. Writes therefore also require a token issued in the last 10 minutes. The
+    // console refreshes its token right before (and every few minutes during) an upload; once an
+    // account is suspended it is disabled and its refresh tokens are revoked, so no fresh token can
+    // be obtained and an old one stops working within 10 minutes instead of 60.
+    function hasFreshToken() {
+      return request.time < timestamp.value(request.auth.token.iat * 1000) + duration.value(10, 'm');
+    }
+
     function isSuperAdmin() {
-      return request.auth != null && (
+      return request.auth != null && hasFreshToken() && (
         (request.auth.token.get('role', '') == 'super_admin' &&
          request.auth.token.get('staff', false) == true) ||
         (firestore.exists(staffDocPath()) &&

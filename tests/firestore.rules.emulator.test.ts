@@ -235,6 +235,20 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       await assertFails(deleteDoc(doc(asUser('repA'), 'inquiries', 'INQ-POOL')));
       await assertSucceeds(deleteDoc(doc(asUser('admin'), 'inquiries', 'INQ-POOL')));
     });
+
+    it('nobody can give a lead to a suspended or unknown staff member', async () => {
+      await env.withSecurityRulesDisabled(async ctx => {
+        await setDoc(doc(ctx.firestore(), 'staff', 'repGone'), staffDoc('repGone', '离职销售', 'sales_rep', 'suspended'));
+        await setDoc(doc(ctx.firestore(), 'inquiries', 'INQ-OLD'), leadDoc('INQ-OLD', { assignedStaffId: 'repGone', assignedStaffName: '离职销售' }));
+      });
+      const admin = asUser('admin');
+      await assertFails(updateDoc(doc(admin, 'inquiries', 'INQ-POOL'), { assignedStaffId: 'repGone', assignedStaffName: '离职销售', updatedAt: now() }));
+      await assertFails(updateDoc(doc(admin, 'inquiries', 'INQ-POOL'), { assignedStaffId: 'nobody', updatedAt: now() }));
+      await assertFails(setDoc(doc(admin, 'inquiries', 'INQ-NEW'), leadDoc('INQ-NEW', { assignedStaffId: 'repGone' })));
+      // The suspended owner's existing lead can still be edited and handed to an active colleague.
+      await assertSucceeds(updateDoc(doc(admin, 'inquiries', 'INQ-OLD'), { stage: 'following', updatedAt: now() }));
+      await assertSucceeds(updateDoc(doc(admin, 'inquiries', 'INQ-OLD'), { assignedStaffId: 'repA', assignedStaffName: '销售甲', updatedAt: now() }));
+    });
   });
 
   // -------------------------------------------------------------------------

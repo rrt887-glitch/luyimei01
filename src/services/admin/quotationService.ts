@@ -15,7 +15,7 @@ import {
 import { sanitizeQuotationForFirestore, sanitizeForFirestore } from '../../utils/firestoreSanitizer';
 import { withTimeout, ADMIN_OPERATION_TIMEOUT_MS } from './adminShared';
 import { LISTENER_LIMITS } from '../../config/appConfig';
-import { formatUsd } from '../../utils/format';
+import { formatUsd, toCents } from '../../utils/format';
 
 export type QuotationDraft = Omit<QuotationSheet, 'id' | 'createdBy' | 'createdByUid' | 'createdAt'>;
 
@@ -154,17 +154,19 @@ export class QuotationDomainService {
     });
     const safeVal = Math.max(
       0,
-      Math.min(1000000000, Math.round((Number(quotation.totalAmountUsd) || 0) * 100) / 100)
+      Math.min(1000000000, toCents(Number(quotation.totalAmountUsd) || 0))
     );
 
-    const { alreadyIssued, leadWriteback } = await withTimeout(
+    const { alreadyIssued, leadWriteback, stored } = await withTimeout(
       runTransaction(db, async tx => {
         const existing = await tx.get(ref);
         const leadRef = draft.leadId ? doc(db, 'inquiries', draft.leadId) : null;
         const leadSnap = leadRef ? await tx.get(leadRef) : null;
 
         if (existing.exists()) {
-          return { alreadyIssued: true, leadWriteback: null };
+          // The number was issued before (e.g. the first attempt saved but its reply timed out).
+          // Hand back what is on record, never the draft as it looks now, which may have changed.
+          return { alreadyIssued: true, leadWriteback: null, stored: fromCloud(existing.data(), existing.id) };
         }
 
         tx.set(ref, sanitizeQuotationForFirestore(quotation));
@@ -192,14 +194,15 @@ export class QuotationDomainService {
           };
         }
 
-        return { alreadyIssued: false, leadWriteback: wb };
+        return { alreadyIssued: false, leadWriteback: wb, stored: null as QuotationSheet | null };
       }),
       ADMIN_OPERATION_TIMEOUT_MS
     );
 
-    if (!alreadyIssued) {
-      this.quotations = [quotation, ...this.quotations.filter(q => q.id !== id)];
+    if (alreadyIssued && stored) {
+      return { quotation: stored, alreadyIssued, leadWriteback: null };
     }
+    this.quotations = [quotation, ...this.quotations.filter(q => q.id !== id)];
     return { quotation, alreadyIssued, leadWriteback };
   }
 }

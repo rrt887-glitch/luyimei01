@@ -530,7 +530,15 @@ export const onInquiryCreated = onDocumentCreated(
     // and only on the first successful processing to avoid duplicate pings on retries.
     const isWebsiteInquiry = !(Array.isArray(initial.notes) && initial.notes.length > 0);
     if (isWebsiteInquiry && (linkedNow || !customerId)) {
-      await notifyNewInquiry(inquiryId, initial);
+      // A redelivered event for an inquiry without a customer would ping again: claim the
+      // notification once with create(), which fails if this inquiry was already announced.
+      const claimed = await adminDb
+        .collection('_processed_events')
+        .doc(`inquiry_notify_${inquiryId}`)
+        .create({ processedAt: nowIso })
+        .then(() => true)
+        .catch(() => false);
+      if (claimed) await notifyNewInquiry(inquiryId, initial);
     }
   }
 );
@@ -543,6 +551,12 @@ export const onInquiryCreated = onDocumentCreated(
 //    idempotency marker in `_processed_events` (server-only, denied to clients by the default rule)
 //    guarantees a trigger retry never counts the same quotation twice.
 // ---------------------------------------------------------------------------
+/** Cents, half away from zero (1.005 -> 1.01); same rule as src/utils/format.ts toCents. */
+function toCents(value: number): number {
+  const cents = Math.round(Number((Math.abs(value) * 100).toPrecision(12)));
+  return (Math.sign(value) * cents) / 100;
+}
+
 export const onQuotationCreated = onDocumentCreated(
   { document: 'quotations/{quotationId}', database: FIRESTORE_DATABASE_ID },
   async event => {
@@ -552,7 +566,7 @@ export const onQuotationCreated = onDocumentCreated(
     const leadId = String(quotation.leadId || '').trim();
     const createdByUid = String(quotation.createdByUid || '').trim();
     const rawAmount = Number(quotation.totalAmountUsd);
-    const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? Math.round(rawAmount * 100) / 100 : 0;
+    const amount = Number.isFinite(rawAmount) && rawAmount > 0 ? toCents(rawAmount) : 0;
     if (!leadId || amount <= 0) return;
 
     const markerRef = adminDb.collection('_processed_events').doc(`quotation_${event.params.quotationId}`);

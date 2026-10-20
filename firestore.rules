@@ -100,6 +100,15 @@ service cloud.firestore {
       return assignedId == null || assignedId == '' || assignedId == request.auth.uid;
     }
 
+    // A lead can only be given to the pool or to an ACTIVE staff member. Keeping the current owner is
+    // always allowed (a suspended owner's lead can still be edited or taken away from them).
+    function isAssignableOwner(newId, oldId) {
+      return newId == '' || newId == oldId || (
+        exists(/databases/$(database)/documents/staff/$(newId)) &&
+        get(/databases/$(database)/documents/staff/$(newId)).data.status == 'active'
+      );
+    }
+
     // Follow-up notes are append-only for sales reps: existing notes can never be removed or rewritten.
     function notesAppendOnly() {
       return request.resource.data.get('notes', []).size() >= resource.data.get('notes', []).size() &&
@@ -420,7 +429,8 @@ service cloud.firestore {
           isValidInquiry(request.resource.data) &&
           request.resource.data.id == inquiryId &&
           !('customerId' in request.resource.data) &&
-          (isAdmin() || isPoolOrSelf(request.resource.data.assignedStaffId))
+          (isAdmin() || isPoolOrSelf(request.resource.data.assignedStaffId)) &&
+          isAssignableOwner(request.resource.data.assignedStaffId, '')
         );
       // Sales reps can only READ pool leads and their own leads (they never download colleagues' clients).
       // Client queries must therefore filter `where('assignedStaffId', 'in', ['', uid])`.
@@ -431,7 +441,8 @@ service cloud.firestore {
           'buyerUid' in resource.data &&
           resource.data.buyerUid == request.auth.uid
         );
-      allow update: if canStaffUpdateInquiry() && isValidInquiry(request.resource.data) && request.resource.data.id == inquiryId;
+      allow update: if canStaffUpdateInquiry() && isValidInquiry(request.resource.data) && request.resource.data.id == inquiryId &&
+        isAssignableOwner(request.resource.data.get('assignedStaffId', ''), resource.data.get('assignedStaffId', ''));
       allow delete: if isAdmin();
     }
 

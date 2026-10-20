@@ -3,6 +3,7 @@
  * Kept free of React so the same rules serve the preview, the PDF and saved quotations.
  */
 import { getCountryOptions } from '../../common/CountryPicker';
+import { toCents } from '../../../utils/format';
 
 export type PiLang = 'en' | 'bilingual' | 'ar' | 'ru';
 /** Languages a single label exists in. */
@@ -131,7 +132,8 @@ export function priceTermText(incoterm: string, portOfLoading: string, portOfDis
 // Numbers & dates
 // ---------------------------------------------------------------------------
 
-export const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+/** Cents, rounded half away from zero (see toCents). */
+export const round2 = toCents;
 
 /** "12,420.00" — always two decimals, Latin digits and a comma grouping in every language. */
 export function money(n: number): string {

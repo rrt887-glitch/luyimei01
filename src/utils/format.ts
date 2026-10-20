@@ -1,6 +1,16 @@
 /** Display helper for lead valuations: an unvalued lead is shown as "待估值", never as a fake amount. */
-/** Rounds to whole cents (also cleans float noise such as 80.50000000001 from summed values). */
-export const toCents = (value: number): number => Math.round((Number(value) || 0) * 100) / 100;
+/**
+ * Rounds to whole cents, half away from zero, the way an invoice does: 1.005 → 1.01, 2.675 → 2.68.
+ * Plain Math.round(v * 100) gets these wrong (1.005 * 100 is 100.49999…), so the product is first
+ * cut to 12 significant digits, which removes the binary noise but keeps every real cent up to
+ * the 1 000 000 000 USD cap. Also cleans sums such as 80.50000000001.
+ */
+export const toCents = (value: number): number => {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v === 0) return 0;
+  const cents = Math.round(Number((Math.abs(v) * 100).toPrecision(12)));
+  return (Math.sign(v) * cents) / 100;
+};
 
 /** "$40.25", "$1,200" — cents are shown whenever the amount has them. */
 export function formatUsd(value: number): string {

@@ -250,10 +250,12 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                       aria-label="负责人"
                     >
                       <option value="">公海</option>
-                      {(isSuperAdmin ? staffList : staffList.filter(s => s.id === currentStaff?.id || s.id === lead.assignedStaffId)).map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
+                      {(isSuperAdmin ? staffList : staffList.filter(s => s.id === currentStaff?.id || s.id === lead.assignedStaffId))
+                        .filter(s => s.status === 'active' || s.id === lead.assignedStaffId)
+                        .map(s => (
+                          <option key={s.id} value={s.id} disabled={s.status !== 'active'}>
+                            {s.status === 'active' ? s.name : `${s.name}（已停用）`}
+                          </option>
                       ))}
                     </select>
                   </td>

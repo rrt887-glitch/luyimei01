@@ -44,6 +44,23 @@ describe('Named Firestore database ID is identical everywhere', () => {
   });
 });
 
+describe('Configuration points at the live project, not just at itself', () => {
+  // Consistency alone passes when every copy is changed to the same wrong value. These compare
+  // against the separately kept record of the production project.
+  const production = JSON.parse(read('tests/firebase.production.json'));
+
+  it('database ID is the production database', () => {
+    expect(appletConfig.firestoreDatabaseId).toBe(production.firestoreDatabaseId);
+  });
+
+  it('project ID is the production project in every file', () => {
+    expect(appletConfig.projectId).toBe(production.projectId);
+    expect(JSON.parse(read('.firebaserc')).projects?.default).toBe(production.projectId);
+    expect(appletConfig.authDomain).toBe(`${production.projectId}.firebaseapp.com`);
+    expect(appletConfig.storageBucket.startsWith(production.projectId)).toBe(true);
+  });
+});
+
 describe('Staff auth email domain is identical in frontend and Cloud Functions', () => {
   it('functions/src/index.ts uses STAFF_AUTH_EMAIL_DOMAIN', () => {
     expect(read('functions/src/index.ts')).toContain(`STAFF_AUTH_EMAIL_DOMAIN = '${STAFF_AUTH_EMAIL_DOMAIN}'`);

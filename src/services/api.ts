@@ -105,6 +105,16 @@ async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req
 }
 
 const OUTBOX_STORAGE_KEY = 'lym_inquiry_outbox_v1';
+/** At most this many unsent inquiries are kept in one browser; beyond that new ones are refused, none dropped. */
+const OUTBOX_MAX_ITEMS = 100;
+
+/** The inquiry neither reached the server nor could be kept in this browser to send later. */
+export class InquiryNotSavedError extends Error {
+  constructor(public readonly reason: 'outbox_full' | 'storage_unavailable') {
+    super(reason === 'outbox_full' ? '本机待发送的询价已达上限，本条未保存。' : '浏览器无法保存本条询价，本条未发送。');
+    this.name = 'InquiryNotSavedError';
+  }
+}
 const PERSISTENT_GUEST_ID_KEY = 'lym_guest_buyer_id';
 
 /** Maps the internal CRM stage to the status shown in the buyer's "My inquiries" list. */
@@ -218,29 +228,40 @@ class ApiService {
     return [];
   }
 
-  private saveOutboxQueue(queue: OutboxInquiryItem[]): void {
+  /** Returns false when the browser refused to store the queue (private mode, storage full…). */
+  private saveOutboxQueue(queue: OutboxInquiryItem[]): boolean {
     try {
       localStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(queue));
+      return JSON.parse(localStorage.getItem(OUTBOX_STORAGE_KEY) || '[]').length === queue.length;
     } catch (e) {
       console.warn('Failed to save inquiry outbox queue:', e);
+      return false;
     }
   }
 
+  /**
+   * Keeps an inquiry that could not reach the server, to send later. Returns the number waiting,
+   * or throws InquiryNotSavedError when it could not be kept: the queue is full (older inquiries
+   * are never dropped to make room) or the browser would not store it. Then the visitor is told
+   * the inquiry was NOT sent, instead of a "queued" message that is not true.
+   */
   private enqueueInquiryOutbox(record: InquiryRecord, payload: Record<string, any>): number {
     const queue = this.getOutboxQueue().filter(item => item.record.id !== record.id);
+    if (queue.length >= OUTBOX_MAX_ITEMS) throw new InquiryNotSavedError('outbox_full');
     queue.unshift({
       record: { ...record, syncStatus: 'queued_local' },
       payload,
       queuedAt: new Date().toISOString(),
       retryCount: 0
     });
-    const trimmed = queue.slice(0, 100);
-    this.saveOutboxQueue(trimmed);
-    return trimmed.length;
+    if (!this.saveOutboxQueue(queue)) throw new InquiryNotSavedError('storage_unavailable');
+    return queue.length;
   }
 
   /**
-   * Flush locally queued inquiries to Firestore `inquiries` collection when network connectivity recovers.
+   * Sends locally queued inquiries once the network is back. The queue is re-read after the
+   * uploads and only the items that were sent are removed, so an inquiry queued meanwhile
+   * (in this tab or another one) is never overwritten.
    */
   async flushInquiryOutbox(): Promise<{ flushedCount: number; remainingCount: number }> {
     const queue = this.getOutboxQueue();
@@ -249,30 +270,36 @@ class ApiService {
     }
 
     this.isFlushingOutbox = true;
-    let flushedCount = 0;
-    const remaining: OutboxInquiryItem[] = [];
+    const done = new Set<string>();
+    const failed = new Set<string>();
 
     try {
       for (const item of queue) {
         try {
           const inqRef = doc(db, 'inquiries', item.record.id);
           await withTimeout(setDoc(inqRef, sanitizeInquiryForFirestore(item.payload)), 8000);
-          flushedCount++;
-          // Update local buyer history status to synced
+          done.add(item.record.id);
           this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
-        } catch {
-          remaining.push({
-            ...item,
-            retryCount: (item.retryCount || 0) + 1
-          });
+        } catch (err) {
+          // A visitor may only CREATE an inquiry. "permission-denied" on a retry means an earlier
+          // attempt did reach the server (its reply was lost to the timeout) and the document
+          // exists: it is delivered, keep no copy.
+          if ((err as { code?: string })?.code === 'permission-denied' && (item.retryCount || 0) > 0) {
+            done.add(item.record.id);
+            this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
+          } else {
+            failed.add(item.record.id);
+          }
         }
       }
-      this.saveOutboxQueue(remaining);
+      const latest = this.getOutboxQueue()
+        .filter(item => !done.has(item.record.id))
+        .map(item => (failed.has(item.record.id) ? { ...item, retryCount: (item.retryCount || 0) + 1 } : item));
+      this.saveOutboxQueue(latest);
+      return { flushedCount: done.size, remainingCount: latest.length };
     } finally {
       this.isFlushingOutbox = false;
     }
-
-    return { flushedCount, remainingCount: remaining.length };
   }
 
   private getBuyerProfiles(): BuyerProfile[] {

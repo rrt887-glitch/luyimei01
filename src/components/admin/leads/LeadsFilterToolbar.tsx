@@ -157,7 +157,7 @@ export const LeadsFilterToolbar: React.FC<LeadsFilterToolbarProps> = ({
               <option value="__UNASSIGN__" className="text-night">
                 退回公海
               </option>
-              {staffList.map(s => (
+              {staffList.filter(s => s.status === 'active').map(s => (
                 <option key={s.id} value={s.id} className="text-night">
                   {s.name}
                 </option>

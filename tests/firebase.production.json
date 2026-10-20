@@ -1,0 +1,5 @@
+{
+  "_comment": "The live Firebase project and database. Every config file is checked against this record, so a change that points ALL of them at another database (as an automated edit once did) still fails the tests. Change it only when the project really moves, after checking the database exists in the Firebase console.",
+  "projectId": "gen-lang-client-0359861747",
+  "firestoreDatabaseId": "ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad"
+}

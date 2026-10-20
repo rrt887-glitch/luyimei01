@@ -6,6 +6,7 @@ import {
   countryForDocument,
   incotermDef,
   money,
+  round2,
   piDate,
   piDir,
   piLabel,
@@ -114,6 +115,8 @@ export const ProformaSheet = React.forwardRef<HTMLDivElement, { doc: PiDocument 
   const termText = priceTermText(doc.incoterm, doc.portOfLoading, doc.portOfDischarge);
   const destination = countryForDocument(doc.buyer.destination, lang);
   const deposit = Math.min(100, Math.max(0, doc.depositPercent || 0));
+  // Deposit rounded to the cent first; the balance is what is left, so the two always add up to the total.
+  const depositUsd = round2((doc.total * deposit) / 100);
   const remarks = [doc.remarks, doc.standardTerms].map(s => (s || '').trim()).filter(Boolean).join('\n');
   const contactLine = [doc.seller.phone && `Tel: ${doc.seller.phone}`, doc.seller.email && `Email: ${doc.seller.email}`, doc.seller.website]
     .filter(Boolean)
@@ -347,7 +350,7 @@ export const ProformaSheet = React.forwardRef<HTMLDivElement, { doc: PiDocument 
                     <L k="deposit" lang={lang} /> <Num>{deposit}%</Num>
                   </td>
                   <td>
-                    <Num>{money((doc.total * deposit) / 100)}</Num>
+                    <Num>{money(depositUsd)}</Num>
                   </td>
                 </tr>
                 <tr className="pi-split">
@@ -355,7 +358,7 @@ export const ProformaSheet = React.forwardRef<HTMLDivElement, { doc: PiDocument 
                     <L k="balance" lang={lang} /> <Num>{100 - deposit}%</Num>
                   </td>
                   <td>
-                    <Num>{money(doc.total - Math.round(doc.total * deposit) / 100)}</Num>
+                    <Num>{money(doc.total - depositUsd)}</Num>
                   </td>
                 </tr>
               </>

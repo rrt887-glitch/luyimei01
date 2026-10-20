@@ -178,7 +178,9 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
         onInquirySubmitted(fill(dt.timeout, { id: result.id }));
       }
     } catch (err) {
-      console.error('Inquiry submit unexpected error:', err);
+      // Not sent and not kept for later (queue full / storage refused): expected, not a bug.
+      if ((err as Error)?.name === 'InquiryNotSavedError') console.warn('Inquiry not saved:', (err as Error).message);
+      else console.error('Inquiry submit unexpected error:', err);
       setIsSuccess(false);
       onInquirySubmitted(dt.unexpected);
     } finally {

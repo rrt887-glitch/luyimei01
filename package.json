@@ -7,10 +7,10 @@
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
     "test": "vitest run",
-    "test:emulator": "npx firebase-tools emulators:exec --only firestore --project demo-lym-rules-test \"npm test\"",
+    "test:emulator": "node scripts/run-emulator-tests.mjs",
     "cleanup:legacy": "node scripts/cleanup-legacy-data.mjs",
     "init:admin": "node scripts/init-super-admin.mjs"
   },

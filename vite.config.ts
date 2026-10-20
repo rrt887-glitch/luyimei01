@@ -31,6 +31,22 @@ export default defineConfig(() => {
         'firebase/app-check',
       ],
     },
+    build: {
+      rolldownOptions: {
+        output: {
+          // Firebase is the bulk of the code the site needs on every visit. Split it by product so
+          // no single file is over ~500 kB, the parts download in parallel, and a change in one
+          // (e.g. an Auth update) does not invalidate the cached others.
+          codeSplitting: {
+            groups: [
+              { name: 'vendor-firestore', test: /node_modules[\\/](@firebase[\\/](firestore|webchannel-wrapper)|re2js)[\\/]/ },
+              { name: 'vendor-auth', test: /node_modules[\\/]@firebase[\\/](auth|app-check)[\\/]/ },
+              { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/ }
+            ]
+          }
+        }
+      }
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

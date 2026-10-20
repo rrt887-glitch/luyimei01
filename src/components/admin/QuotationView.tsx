@@ -132,7 +132,15 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
   const [recentQuotations, setRecentQuotations] = useState<QuotationSheet[]>(() => adminApi.getQuotations());
   useEffect(() => adminApi.subscribeToQuotations(setRecentQuotations), []);
 
-  const [busy, setBusy] = useState(false);
+  const [busyState, setBusyState] = useState(false);
+  // A ref, not only state: two clicks in the same frame both see busy === false in their closure,
+  // so the lock must be taken synchronously or one quotation could be printed / issued twice.
+  const busyRef = useRef(false);
+  const busy = busyState;
+  const setBusy = (next: boolean) => {
+    busyRef.current = next;
+    setBusyState(next);
+  };
   const [lastPdf, setLastPdf] = useState<{ url: string; filename: string; sizeKb: number; time: string } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewing, setViewing] = useState<QuotationSheet | null>(null);
@@ -354,7 +362,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
       amountUsd: lines[idx].amountUsd
     }));
 
-  const issue = async (): Promise<{ alreadyIssued: boolean; crmSynced: boolean } | null> => {
+  const issue = async (): Promise<{ alreadyIssued: boolean; crmSynced: boolean; quotation: QuotationSheet } | null> => {
     if (blockers.length) {
       onShowToast(`还不能开具：${blockers.join('；')}`);
       return null;
@@ -393,6 +401,14 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
         }
       });
       if (res.crmSynced) onRefreshData?.();
+      if (res.alreadyIssued) {
+        // Never print the edited form under a number that is already on record: show the issued
+        // quotation instead and give the form a fresh number for the changes.
+        setQuotationNumber(generateQuotationNumber());
+        setViewing(res.quotation);
+        onShowToast(`单号 ${res.quotation.quotationNumber} 已开具过，已打开已保存的版本；表单已换新单号，修改内容请重新开具`);
+        return null;
+      }
       return res;
     } catch (err) {
       onShowToast(`报价单保存失败：${(err as Error).message}`);
@@ -420,7 +436,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
   };
 
   const handleDownload = async () => {
-    if (!outputRef.current || busy) return;
+    if (!outputRef.current || busyRef.current) return;
     setBusy(true);
     const number = quotationNumber;
     const issued = await issue();
@@ -432,9 +448,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
       const filename = await downloadPdf(outputRef.current, number, clientCompany || clientName);
       adminApi.addAuditLog('下载报价单 PDF', filename, `报价单 ${number}｜客户 ${clientCompany || clientName}｜金额 $${money(total)}`);
       onShowToast(
-        issued.alreadyIssued
-          ? `已重新下载 ${filename}（这个单号之前开过，不会重复更新线索）`
-          : issued.crmSynced
+        issued.crmSynced
           ? `已开具 ${filename}，关联线索已更新为「已报价」，估值 $${money(total)}`
           : `已开具 ${filename}`
       );
@@ -449,7 +463,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
   };
 
   const handlePrint = async () => {
-    if (!outputRef.current || busy) return;
+    if (!outputRef.current || busyRef.current) return;
     setBusy(true);
     try {
       const number = quotationNumber;
@@ -469,7 +483,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
     ? documentFromQuotation(viewing, config, { phone: contactCfg.hotlinePhone || '', email: contactCfg.officialEmail || '' }, logoUrl)
     : null;
   const historyDownload = async () => {
-    if (!viewing || !historyOutputRef.current || busy) return;
+    if (!viewing || !historyOutputRef.current || busyRef.current) return;
     setBusy(true);
     try {
       const filename = await downloadPdf(historyOutputRef.current, viewing.quotationNumber, viewing.clientCompany || viewing.clientName);

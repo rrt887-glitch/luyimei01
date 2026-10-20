@@ -24,6 +24,12 @@ import { AuditLogDomainService } from './auditLogService';
 import { formatUsd, toCents } from '../../utils/format';
 
 /** One row of an Excel import, already validated by the import dialog. */
+/** Leads go to the pool or to an active colleague; firestore.rules enforces the same. */
+function assertAssignable(staff: StaffAccount | undefined): void {
+  if (!staff) throw new Error('未找到目标员工，无法指派。');
+  if (staff.status !== 'active') throw new Error(`员工「${staff.name}」已停用，不能指派线索。`);
+}
+
 export interface LeadImportItem {
   customerName: string;
   company?: string;
@@ -304,6 +310,7 @@ export class LeadsCrmDomainService {
     for (const item of items) {
       const ownerId = isSuperAdmin ? item.assignedStaffId || '' : currentStaff.id;
       const owner = ownerId ? staffList.find(s => s.id === ownerId || s.uid === ownerId) : undefined;
+      if (ownerId && ownerId !== currentStaff.id) assertAssignable(owner);
       const notes: LeadFollowUpNote[] = [
         {
           id: `NOTE-${doc(collection(db, 'inquiries')).id.slice(0, 10)}`,
@@ -387,6 +394,7 @@ export class LeadsCrmDomainService {
     const assignedStaff = safeStaffId
       ? staffList.find(s => s.id === safeStaffId || s.uid === safeStaffId)
       : undefined;
+    if (safeStaffId && safeStaffId !== currentStaff?.id) assertAssignable(assignedStaff);
     const staffName = assignedStaff?.name;
 
     const initialNote: LeadFollowUpNote[] = [
@@ -486,7 +494,7 @@ export class LeadsCrmDomainService {
     const lead = this.leads.find(l => l.id === leadId);
     if (!lead) return null;
 
-    const safeVal = Math.max(0, Math.min(1000000000, Math.round((Number(estimatedValueUsd) || 0) * 100) / 100));
+    const safeVal = Math.max(0, Math.min(1000000000, toCents(Number(estimatedValueUsd) || 0)));
     const oldVal = lead.estimatedValueUsd || 0;
     const nowStr = new Date().toISOString();
 
@@ -592,6 +600,7 @@ export class LeadsCrmDomainService {
     }
 
     const staff = safeId ? staffList.find(s => s.id === safeId || s.uid === safeId) : undefined;
+    if (safeId && safeId !== lead.assignedStaffId && safeId !== currentStaff?.id) assertAssignable(staff);
     const nowStr = new Date().toISOString();
     const previousOwner = lead.assignedStaffName || (lead.assignedStaffId ? '其他员工' : '公海');
 
@@ -741,9 +750,7 @@ export class LeadsCrmDomainService {
     const idSet = new Set(leadIds);
     const safeId = (staffId || '').trim();
     const staff = safeId ? staffList.find(s => s.id === safeId || s.uid === safeId) : undefined;
-    if (safeId && !staff) {
-      throw new Error('未找到目标员工，无法指派。');
-    }
+    if (safeId && safeId !== currentStaff?.id) assertAssignable(staff);
     const isSuperAdmin = currentStaff?.role === 'super_admin';
     if (!isSuperAdmin && safeId && safeId !== currentStaff?.id) {
       throw new Error('越权拦截：销售代表只能认领线索至本人名下或释放回公海！');
