@@ -106,7 +106,8 @@ vi.mock(adminPaths.rootFirestore, () => ({
   getFirestore: () => fakeDb,
   FieldValue: { increment: (n: number) => ({ [INC]: n }), delete: () => DEL }
 }));
-vi.mock(adminPaths.auth, () => ({ getAuth: () => ({}) }));
+const claims = new Map<string, Record<string, unknown> | null>();
+vi.mock(adminPaths.auth, () => ({ getAuth: () => ({ setCustomUserClaims: async (uid: string, c: Record<string, unknown> | null) => void claims.set(uid, c) }) }));
 vi.mock(adminPaths.firestore, () => ({
   getFirestore: () => fakeDb,
   FieldValue: { increment: (n: number) => ({ [INC]: n }), delete: () => DEL },
@@ -244,5 +245,20 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     expect(newId).not.toBe('CUST-MAIL-qa_test_example_com');
     expect(store.get(`customers/${newId}`)).toMatchObject({ email: 'qa_test@example.com', inquiryCount: 1, totalQuotationUsd: 50 });
     expect(store.get('customers/CUST-MAIL-qa_test_example_com')).toMatchObject({ inquiryCount: 1, totalQuotationUsd: 40.25 });
+  });
+
+  it('#42/#21 upload grant: active super admin gets a 15-minute grant; suspended or sales staff are refused', async () => {
+    apply('staff/admin', { id: 'admin', role: 'super_admin', status: 'active' }, false);
+    apply('staff/gone', { id: 'gone', role: 'super_admin', status: 'suspended' }, false);
+    apply('staff/rep', { id: 'rep', role: 'sales_rep', status: 'active' }, false);
+    const call = (uid: string) => fns.grantUploadAccess.run({ auth: { uid, token: {} }, data: {}, rawRequest: {} as any });
+    const t0 = Date.now();
+    const { uploadUntil } = await call('admin');
+    expect(uploadUntil).toBeGreaterThan(t0 + 14 * 60_000);
+    expect(uploadUntil).toBeLessThanOrEqual(Date.now() + 15 * 60_000);
+    expect(claims.get('admin')).toEqual({ role: 'super_admin', staff: true, uploadUntil });
+    await expect(call('gone')).rejects.toMatchObject({ code: 'permission-denied' });
+    await expect(call('rep')).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(claims.has('gone')).toBe(false);
   });
 });

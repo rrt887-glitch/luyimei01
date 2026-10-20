@@ -14,22 +14,32 @@ export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const VIDEO_MAX_BYTES = 150 * 1024 * 1024;
 /** An upload that has not moved for this long is treated as a dropped connection. */
 const STALL_TIMEOUT_MS = 45_000;
-/** storage.rules accepts writes only with an ID token younger than 10 minutes; refresh well inside that. */
-const TOKEN_REFRESH_MS = 4 * 60_000;
+/** Renew the upload grant while uploading, well before its 15 minutes run out. */
+const GRANT_RENEW_MS = 5 * 60_000;
+let grantUntil = 0;
 
 /**
- * Gets a brand-new ID token from the server. Fails for an account that was suspended or deleted
- * (it is disabled and its sessions revoked), which is exactly when uploading must stop.
+ * storage.rules accepts media writes only while the custom claim `uploadUntil` is in the future.
+ * The grantUploadAccess Cloud Function checks the staff record live and sets it; the ID token is
+ * then refreshed so the new claim travels with the upload. A suspended or deleted admin is refused
+ * here, which is exactly when uploading must stop.
  */
-async function refreshStaffToken(): Promise<void> {
+async function ensureUploadGrant(force = false): Promise<void> {
   const user = auth.currentUser;
   if (!user) throw Object.assign(new Error('登录已过期，请重新登录后再上传。'), { code: 'lym/session-ended' });
+  if (!force && grantUntil - Date.now() > GRANT_RENEW_MS) return;
+  const { adminFunctions } = await import('./admin/adminFunctions');
   try {
+    const { uploadUntil } = await adminFunctions.grantUploadAccess();
     await user.getIdToken(true);
+    grantUntil = uploadUntil;
   } catch (err) {
+    grantUntil = 0;
     const code = String((err as { code?: string })?.code || '');
-    if (code === 'auth/network-request-failed') throw err;
-    throw Object.assign(new Error('账号已停用或登录已失效，不能上传。请重新登录。'), { code: 'lym/session-ended' });
+    if (code === 'permission-denied' || code === 'unauthenticated' || code.startsWith('auth/user-')) {
+      throw Object.assign(new Error('账号已停用或没有上传权限，不能上传。请用在职超级管理员账号重新登录。'), { code: 'lym/session-ended' });
+    }
+    throw err;
   }
 }
 
@@ -84,16 +94,16 @@ async function uploadWithProgress(
   signal?: AbortSignal
 ): Promise<string> {
   if (signal?.aborted) throw new UploadCancelledError();
-  await refreshStaffToken();
+  await ensureUploadGrant();
   const [{ ref, uploadBytesResumable, getDownloadURL }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
   const storageRef: StorageReference = ref(storage, path);
   const task = uploadBytesResumable(storageRef, data, { contentType, cacheControl: 'public, max-age=31536000' });
 
   return new Promise<string>((resolve, reject) => {
     let stalled: ReturnType<typeof setTimeout>;
-    // A long video outlives one token: keep it fresh so later chunks still pass storage.rules.
-    // A failed refresh (account suspended) is left to the rules, which then reject the next chunk.
-    const keepFresh = setInterval(() => void refreshStaffToken().catch(() => undefined), TOKEN_REFRESH_MS);
+    // A long video can outlast one grant: renew it so later chunks still pass storage.rules.
+    // A refused renewal (account suspended) is left to the rules, which then reject the next chunk.
+    const keepFresh = setInterval(() => void ensureUploadGrant().catch(() => undefined), 60_000);
     let failure: Error | null = null;
     const armStallTimer = () => {
       clearTimeout(stalled);
@@ -227,7 +237,7 @@ export async function uploadProductVideo(
 export async function deleteUploadedMedia(urls: string[]): Promise<number> {
   const targets = urls.filter(url => url && url.includes('firebasestorage.googleapis.com'));
   if (!targets.length) return 0;
-  await refreshStaffToken().catch(() => undefined);
+  await ensureUploadGrant().catch(() => undefined);
   const [{ ref, deleteObject }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
   let deleted = 0;
   for (const url of targets) {

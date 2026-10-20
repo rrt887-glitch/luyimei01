@@ -29,10 +29,10 @@ describe('Named Firestore database ID is identical everywhere', () => {
     expect(firebaseJson.storage?.rules).toBe('storage.rules');
   });
 
-  it('storage.rules cross-service lookups target the same database', () => {
+  it('storage.rules cross-service lookups (if any) target the same database', () => {
+    // storage.rules currently decides from custom claims only; any lookup added later must use dbId.
     const storageRules = read('storage.rules');
     const ids = Array.from(storageRules.matchAll(/\/databases\/([^/]+)\/documents/g)).map(m => m[1]);
-    expect(ids.length).toBeGreaterThan(0);
     for (const id of ids) {
       expect(id).toBe(dbId);
     }

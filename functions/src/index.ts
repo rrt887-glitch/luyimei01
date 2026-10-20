@@ -372,6 +372,26 @@ export const adminUpdateStaffStatus = onCall(async request => {
 });
 
 // ---------------------------------------------------------------------------
+// 3b. grantUploadAccess
+//    Product images and videos are written straight to Cloud Storage. Storage rules cannot
+//    reliably read the named Firestore database, and an ID token stays valid for an hour after a
+//    super admin is suspended, so neither the staff document nor the role claim alone can stop a
+//    suspended admin quickly. Instead, each upload session asks this function first: it checks the
+//    staff document LIVE and puts a short expiry (`uploadUntil`, ms) into the custom claims.
+//    storage.rules accepts a write only while `uploadUntil` lies in the future. After a suspension
+//    the claims are cleared, sessions revoked, and this function refuses, so access ends at the
+//    latest UPLOAD_GRANT_MS after the last grant.
+// ---------------------------------------------------------------------------
+const UPLOAD_GRANT_MS = 15 * 60 * 1000;
+
+export const grantUploadAccess = onCall(async request => {
+  const uid = await assertCallerIsSuperAdmin(request.auth);
+  const uploadUntil = Date.now() + UPLOAD_GRANT_MS;
+  await adminAuth.setCustomUserClaims(uid, { role: 'super_admin', staff: true, uploadUntil });
+  return { uploadUntil };
+});
+
+// ---------------------------------------------------------------------------
 // 4. adminDeleteStaff
 //    Order matters: revoke Auth first, then delete the staff document, then release leads.
 //    Even if a step fails midway, the person can no longer act as staff, because rules require

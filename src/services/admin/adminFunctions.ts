@@ -74,6 +74,11 @@ export interface CreateStaffRequest {
 }
 
 export const adminFunctions = {
+  /** Short upload permission for product media (see grantUploadAccess in functions/src/index.ts). */
+  grantUploadAccess() {
+    return callAdminFunction<Record<string, never>, { uploadUntil: number }>('grantUploadAccess', {});
+  },
+
   createStaff(data: CreateStaffRequest) {
     return callAdminFunction<CreateStaffRequest, { staff: StaffAccount }>('adminCreateStaff', data);
   },

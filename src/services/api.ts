@@ -301,17 +301,20 @@ class ApiService {
     const failed = new Set<string>();
 
     try {
+      const signedInUid = auth.currentUser?.uid || '';
       for (const item of queue) {
+        const owner = String(item.payload?.buyerUid || '');
+        // Queued by a buyer who is not the one signed in now (they logged out, someone else logged
+        // in): the server would refuse it for the wrong account, which proves nothing about whether
+        // it arrived. Leave it untouched until that buyer is signed in again.
+        if (owner && owner !== signedInUid) continue;
+        const inqRef = doc(db, 'inquiries', item.record.id);
         try {
-          const inqRef = doc(db, 'inquiries', item.record.id);
           await withTimeout(setDoc(inqRef, sanitizeInquiryForFirestore(item.payload)), 8000);
           done.add(item.record.id);
           this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
         } catch (err) {
-          // A visitor may only CREATE an inquiry. "permission-denied" on a retry means an earlier
-          // attempt did reach the server (its reply was lost to the timeout) and the document
-          // exists: it is delivered, keep no copy.
-          if ((err as { code?: string })?.code === 'permission-denied' && (item.maybeDelivered || (item.retryCount || 0) > 0)) {
+          if ((err as { code?: string })?.code === 'permission-denied' && (await this.alreadyDelivered(inqRef, owner, item))) {
             done.add(item.record.id);
             this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
           } else {
@@ -327,6 +330,24 @@ class ApiService {
     } finally {
       this.isFlushingOutbox = false;
     }
+  }
+
+  /**
+   * After the server refused to (re)create a queued inquiry: is it because the inquiry is already
+   * there? A buyer can read their own inquiries, so for them it is checked for real. An anonymous
+   * visitor cannot read anything back; for them a refusal counts as "already there" only when an
+   * earlier attempt may have reached the server (the first reply was lost or a retry happened):
+   * a visitor may only CREATE inquiries, so re-sending an existing one is the refusal expected.
+   */
+  private async alreadyDelivered(ref: ReturnType<typeof doc>, owner: string, item: OutboxInquiryItem): Promise<boolean> {
+    if (owner) {
+      try {
+        return (await withTimeout(getDoc(ref), 6000)).exists();
+      } catch {
+        return false;
+      }
+    }
+    return Boolean(item.maybeDelivered || (item.retryCount || 0) > 0);
   }
 
   private getBuyerProfiles(): BuyerProfile[] {

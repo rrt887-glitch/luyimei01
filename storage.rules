@@ -1,55 +1,39 @@
 rules_version = '2';
 
-// NOTE: The Firestore database ID below MUST stay identical to `firestoreDatabaseId` in
-// firebase-applet-config.json and `firestore.database` in firebase.json.
-// tests/config.consistency.test.ts enforces this automatically.
-
 service firebase.storage {
   match /b/{bucket}/o {
 
-    function staffDocPath() {
-      return /databases/ai-studio-e08ae01c-ee86-49b6-9f67-2c784ec195ad/documents/staff/$(request.auth.uid);
-    }
-
-    // Firebase Storage `firestore.get()` cannot read non-(default) named Firestore databases in
-    // production, so we check server-managed Custom Claims (`role: 'super_admin', staff: true`,
-    // kept in sync and revoked on suspension/deletion by `syncAuthWithStaffState` in Cloud Functions)
-    // first, with `staffDocPath()` retained as fallback.
-    // Custom claims live in the ID token, which stays valid for up to an hour after a super admin
-    // is suspended. Writes therefore also require a token issued in the last 10 minutes. The
-    // console refreshes its token right before (and every few minutes during) an upload; once an
-    // account is suspended it is disabled and its refresh tokens are revoked, so no fresh token can
-    // be obtained and an old one stops working within 10 minutes instead of 60.
-    function hasFreshToken() {
-      return request.time < timestamp.value(request.auth.token.iat * 1000) + duration.value(10, 'm');
-    }
-
-    function isSuperAdmin() {
-      return request.auth != null && hasFreshToken() && (
-        (request.auth.token.get('role', '') == 'super_admin' &&
-         request.auth.token.get('staff', false) == true) ||
-        (firestore.exists(staffDocPath()) &&
-         firestore.get(staffDocPath()).data.role == 'super_admin' &&
-         firestore.get(staffDocPath()).data.get('status', 'active') == 'active')
-      );
+    // Product media may be written only by a super admin holding a current upload grant.
+    //
+    // The grant (`uploadUntil`, epoch ms) is put into the custom claims by the grantUploadAccess
+    // Cloud Function, which checks the staff document live each time; the console asks for it
+    // before every upload and renews it during long ones. Claims and the request time are the only
+    // inputs, both documented and reliable in Storage rules (no cross-service lookup of the named
+    // Firestore database, no reliance on JWT time fields). A suspended admin can no longer obtain
+    // a grant, so any token they still hold stops working within 15 minutes of the last grant.
+    function canWriteMedia() {
+      return request.auth != null &&
+        request.auth.token.get('role', '') == 'super_admin' &&
+        request.auth.token.get('staff', false) == true &&
+        request.auth.token.get('uploadUntil', 0) > request.time.toMillis();
     }
 
     // Product Images: public read, super_admin write, max 10MB, image/* content type only
     match /products/{productId}/images/{fileName} {
       allow read: if true;
-      allow create, update: if isSuperAdmin() &&
+      allow create, update: if canWriteMedia() &&
         request.resource.size <= 10 * 1024 * 1024 &&
         request.resource.contentType.matches('image/.*');
-      allow delete: if isSuperAdmin();
+      allow delete: if canWriteMedia();
     }
 
     // Product Videos: public read, super_admin write, max 150MB, video/* content type only
     match /products/{productId}/videos/{fileName} {
       allow read: if true;
-      allow create, update: if isSuperAdmin() &&
+      allow create, update: if canWriteMedia() &&
         request.resource.size <= 150 * 1024 * 1024 &&
         request.resource.contentType.matches('video/.*');
-      allow delete: if isSuperAdmin();
+      allow delete: if canWriteMedia();
     }
 
     // Default deny all other paths
