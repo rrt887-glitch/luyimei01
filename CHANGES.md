@@ -8,6 +8,17 @@
 
 对官网、买家账户、员工中台全部功能做了一轮自动化测试（共 34 组用例，详见测试报告），修复了以下问题：
 
+## v15.14 — 买家资料权限、停用后上传立即失效、权限说明
+
+**上线需要（按顺序）：**
+1. Cloud Shell 里创建 (default) 数据库（只需一次）：`gcloud firestore databases create --database="(default)" --location=us-west2 --type=firestore-native`
+2. `git pull` 后 `npx firebase-tools deploy --only firestore:rules,storage,functions --project gen-lang-client-0359861747`
+3. AI Studio 重新部署。
+
+- **买家资料（1）**：`buyers` 只允许买家本人和超级管理员读取；销售代表不能读取单个买家，也不能查询买家目录（规则层面，不是隐藏菜单）。
+- **停用后上传立即失效（2）**：上传许可除了写在登录令牌里，还在 (default) 数据库里有一条实时记录 `upload_grants/{uid}`；上传规则每次写入都核对这条记录。停用、降为销售或删除账号时立即删除这条记录，之前拿到的令牌马上失效。商品图片 / 视频改为只能新建、不能覆盖（上传文件名本来就唯一），旧授权无论如何都无法替换原文件，后台清理也不会误删原文件。(default) 数据库只放这一种记录，浏览器无法访问（firestore.default.rules 全部拒绝）。
+- **权限说明（3）**：「销售代表」的说明改为“经营概览、商机线索（公海和自己名下，可认领公海线索）、报价单（自己开的）、我的账号。看不到员工名单、同事的线索、客户档案和买家资料。”
+
 ## v15.13 — 员工数据可见范围与认领公海线索
 
 **上线需要：** AI Studio 重新部署；Cloud Shell 里 `git pull` 后 `npx firebase-tools deploy --only firestore:rules --project gen-lang-client-0359861747`（安全规则有改动）。

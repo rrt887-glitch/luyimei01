@@ -51,6 +51,19 @@ const FIRESTORE_BATCH_LIMIT = 400;
 
 const adminAuth = getAuth(app);
 const adminDb = getFirestore(app, FIRESTORE_DATABASE_ID);
+/**
+ * The project's (default) Firestore database holds ONE thing: live upload grants
+ * (`upload_grants/{uid}`). Cloud Storage rules can look up documents only in the (default)
+ * database, so this is where the grant must live for storage.rules to check it on every write.
+ * Clients have no access to it (firestore.default.rules deny everything).
+ */
+const grantsDb = getFirestore(app);
+const uploadGrantRef = (uid: string) => grantsDb.collection('upload_grants').doc(uid);
+
+/** Withdraws upload rights at once: storage.rules refuse every write without a live grant. */
+async function revokeUploadGrant(uid: string): Promise<void> {
+  await uploadGrantRef(uid).delete().catch(err => console.error(`Could not revoke upload grant of ${uid}:`, err));
+}
 
 type StaffRole = 'super_admin' | 'sales_rep';
 type StaffStatus = 'active' | 'suspended';
@@ -158,6 +171,7 @@ async function releaseLeadsOfStaff(staffUid: string): Promise<number> {
 
 /** Keep Custom Claims + Auth disabled flag in sync with the staff document, and kick old sessions. */
 async function syncAuthWithStaffState(uid: string, role: StaffRole | null, status: StaffStatus | null) {
+  if (role !== 'super_admin' || status !== 'active') await revokeUploadGrant(uid);
   if (!role || status !== 'active') {
     await adminAuth.setCustomUserClaims(uid, null);
     await adminAuth.updateUser(uid, { disabled: true });
@@ -389,6 +403,8 @@ const UPLOAD_GRANT_MS = 15 * 60 * 1000;
 export const grantUploadAccess = onCall(async request => {
   const uid = await assertCallerIsSuperAdmin(request.auth);
   const uploadUntil = Date.now() + UPLOAD_GRANT_MS;
+  // The live record storage.rules check on every write; suspension deletes it (revokeUploadGrant).
+  await uploadGrantRef(uid).set({ uploadUntil, updatedAt: new Date().toISOString() });
   await adminAuth.setCustomUserClaims(uid, { role: 'super_admin', staff: true, uploadUntil });
   return { uploadUntil };
 });
@@ -471,6 +487,7 @@ export const adminDeleteStaff = onCall(async request => {
       console.warn(`Warning deleting Auth user ${uid}:`, err);
     });
 
+    await revokeUploadGrant(uid);
     await staffRef(uid).delete();
     releasedLeadCount += await releaseLeadsOfStaff(uid);
     deletedIds.push(uid);

@@ -24,18 +24,22 @@ describe('Named Firestore database ID is identical everywhere', () => {
 
   it('firebase.json deploys rules to the same database', () => {
     const firebaseJson = JSON.parse(read('firebase.json'));
-    expect(firebaseJson.firestore?.database).toBe(dbId);
-    expect(firebaseJson.firestore?.rules).toBe('firestore.rules');
+    // Two databases: the site's named database, and (default) holding only upload grants.
+    const dbs = firebaseJson.firestore as { database: string; rules: string }[];
+    expect(Array.isArray(dbs)).toBe(true);
+    expect(dbs.find(d => d.database === dbId)?.rules).toBe('firestore.rules');
+    expect(dbs.find(d => d.database === '(default)')?.rules).toBe('firestore.default.rules');
+    expect(read('firestore.default.rules')).toMatch(/allow read, write: if false;/);
     expect(firebaseJson.storage?.rules).toBe('storage.rules');
   });
 
-  it('storage.rules cross-service lookups (if any) target the same database', () => {
-    // storage.rules currently decides from custom claims only; any lookup added later must use dbId.
+  it('storage.rules look up only the upload grants in the (default) database', () => {
+    // Cross-service rules can read the (default) database only; the functions write the grants there.
     const storageRules = read('storage.rules');
-    const ids = Array.from(storageRules.matchAll(/\/databases\/([^/]+)\/documents/g)).map(m => m[1]);
-    for (const id of ids) {
-      expect(id).toBe(dbId);
-    }
+    const paths = Array.from(storageRules.matchAll(/\/databases\/([^/]+)\/documents\/([a-z_]+)\//g)).map(m => `${m[1]}/${m[2]}`);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const p of paths) expect(p).toBe('(default)/upload_grants');
+    expect(read('functions/src/index.ts')).toContain("collection('upload_grants')");
   });
 
   it('Cloud Functions and the admin bootstrap script use the same database', () => {

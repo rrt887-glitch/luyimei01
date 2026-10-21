@@ -5,17 +5,23 @@ service firebase.storage {
 
     // Product media may be written only by a super admin holding a current upload grant.
     //
-    // The grant (`uploadUntil`, epoch ms) is put into the custom claims by the grantUploadAccess
-    // Cloud Function, which checks the staff document live each time; the console asks for it
-    // before every upload and renews it during long ones. Claims and the request time are the only
-    // inputs, both documented and reliable in Storage rules (no cross-service lookup of the named
-    // Firestore database, no reliance on JWT time fields). A suspended admin can no longer obtain
-    // a grant; a file they still manage to upload with an old grant is removed by the server at once.
+    // grantUploadAccess (Cloud Function) checks the staff document live, then
+    //   * writes the grant record upload_grants/{uid} in the (default) Firestore database, and
+    //   * puts the same expiry (`uploadUntil`, epoch ms) into the custom claims.
+    // Every write below checks the live record, which is deleted the moment the account is
+    // suspended, demoted or removed — so an old token stops working at once. Files are create-only
+    // (unique names), and onProductMediaUploaded removes anything whose uploader is not an active
+    // super admin as a second line of defence.
     function canWriteMedia() {
       return request.auth != null &&
         request.auth.token.get('role', '') == 'super_admin' &&
         request.auth.token.get('staff', false) == true &&
         request.auth.token.get('uploadUntil', 0) > request.time.toMillis() &&
+        // The LIVE grant record (written by grantUploadAccess, deleted the moment the account is
+        // suspended, demoted or removed). This is what makes a suspension take effect at once,
+        // even for a token issued before it. Cross-service rules read the (default) database only.
+        firestore.exists(/databases/(default)/documents/upload_grants/$(request.auth.uid)) &&
+        firestore.get(/databases/(default)/documents/upload_grants/$(request.auth.uid)).data.uploadUntil > request.time.toMillis() &&
         // Every file names its uploader, so the onProductMediaUploaded function can check that
         // person against the live staff record the moment the file is stored (and remove it).
         request.resource.metadata != null &&
@@ -25,20 +31,24 @@ service firebase.storage {
     // Product Images: public read, super_admin write, max 10MB, image/* content type only
     match /products/{productId}/images/{fileName} {
       allow read: if true;
-      allow create, update: if canWriteMedia() &&
+      // New files only. Uploads always get a new unique name, so nothing legitimate overwrites a
+      // file; refusing overwrites means an old grant can never replace (or get removed) an original.
+      allow create: if canWriteMedia() &&
         request.resource.size <= 10 * 1024 * 1024 &&
         request.resource.contentType.matches('image/.*');
       // Deleting goes through the deleteProductMedia Cloud Function (live staff check).
-      allow delete: if false;
+      allow update, delete: if false;
     }
 
     // Product Videos: public read, super_admin write, max 150MB, video/* content type only
     match /products/{productId}/videos/{fileName} {
       allow read: if true;
-      allow create, update: if canWriteMedia() &&
+      // New files only. Uploads always get a new unique name, so nothing legitimate overwrites a
+      // file; refusing overwrites means an old grant can never replace (or get removed) an original.
+      allow create: if canWriteMedia() &&
         request.resource.size <= 150 * 1024 * 1024 &&
         request.resource.contentType.matches('video/.*');
-      allow delete: if false;
+      allow update, delete: if false;
     }
 
     // Default deny all other paths

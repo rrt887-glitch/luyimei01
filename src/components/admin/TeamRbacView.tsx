@@ -250,7 +250,7 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
     {
       role: '销售代表',
       tone: 'sky' as const,
-      can: '经营概览、商机线索（公海和自己名下）、报价单（自己开的）、团队名录。看不到同事的线索和客户档案。'
+      can: '经营概览、商机线索（公海和自己名下，可认领公海线索）、报价单（自己开的）、我的账号。看不到员工名单、同事的线索、客户档案和买家资料。'
     }
   ];
 

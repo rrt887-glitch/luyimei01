@@ -145,6 +145,18 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       await assertFails(getDoc(doc(anon(), 'staff', 'admin')));
     });
 
+    it('buyer profiles: the buyer and super admins only — never sales reps', async () => {
+      await env.withSecurityRulesDisabled(async ctx => {
+        await setDoc(doc(ctx.firestore(), 'buyers', 'buyer1'), { id: 'buyer1', uid: 'buyer1', email: 'b1@example.com', name: 'Buyer One', registeredAt: now(), phone: '+971500000000' });
+      });
+      await assertSucceeds(getDoc(doc(asUser('buyer1'), 'buyers', 'buyer1')));
+      await assertSucceeds(getDoc(doc(asUser('admin'), 'buyers', 'buyer1')));
+      await assertSucceeds(getDocs(collection(asUser('admin'), 'buyers')));
+      await assertFails(getDoc(doc(asUser('repA'), 'buyers', 'buyer1')));
+      await assertFails(getDocs(collection(asUser('repA'), 'buyers')));
+      await assertFails(getDoc(doc(asUser('buyer2'), 'buyers', 'buyer1')));
+    });
+
     it('sales reps see only their own staff record; the directory is for super admins', async () => {
       const repA = asUser('repA');
       await assertSucceeds(getDoc(doc(repA, 'staff', 'repA')));

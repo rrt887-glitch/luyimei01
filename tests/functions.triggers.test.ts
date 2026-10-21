@@ -112,7 +112,13 @@ vi.mock(adminPaths.rootFirestore, () => ({
   FieldValue: { increment: (n: number) => ({ [INC]: n }), delete: () => DEL }
 }));
 const claims = new Map<string, Record<string, unknown> | null>();
-vi.mock(adminPaths.auth, () => ({ getAuth: () => ({ setCustomUserClaims: async (uid: string, c: Record<string, unknown> | null) => void claims.set(uid, c) }) }));
+vi.mock(adminPaths.auth, () => ({
+  getAuth: () => ({
+    setCustomUserClaims: async (uid: string, c: Record<string, unknown> | null) => void claims.set(uid, c),
+    updateUser: async () => ({}),
+    revokeRefreshTokens: async () => undefined
+  })
+}));
 vi.mock(adminPaths.firestore, () => ({
   getFirestore: () => fakeDb,
   FieldValue: { increment: (n: number) => ({ [INC]: n }), delete: () => DEL },
@@ -372,5 +378,21 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     expect(store.get('customers/CUST-QA')!.totalQuotationUsd).toBe(80.5);
     expect(store.get('customers/CUST-OLD')!.totalQuotationUsd).toBe(128400);
     expect(logs.some(l => l.startsWith('[check] CUST-OLD'))).toBe(true);
+  });
+
+  it('#2 suspending a super admin deletes the live upload grant at once (old tokens stop working)', async () => {
+    apply('staff/admin', { id: 'admin', role: 'super_admin', status: 'active' }, false);
+    apply('staff/boss', { id: 'boss', role: 'super_admin', status: 'active' }, false);
+    const call = (fn: any, uid: string, data: unknown) => fn.run({ auth: { uid, token: {} }, data, rawRequest: {} as any });
+    const { uploadUntil } = await call(fns.grantUploadAccess, 'admin', {});
+    expect(store.get('upload_grants/admin')?.uploadUntil).toBe(uploadUntil);
+    await call(fns.adminUpdateStaffStatus, 'boss', { staffIds: ['admin'], status: 'suspended' });
+    expect(store.get('staff/admin')?.status).toBe('suspended');
+    expect(store.has('upload_grants/admin')).toBe(false);
+    // Demotion to sales rep also withdraws it.
+    await call(fns.grantUploadAccess, 'boss', {});
+    apply('staff/third', { id: 'third', role: 'super_admin', status: 'active' }, false);
+    await call(fns.adminUpdateStaffStatus, 'third', { staffIds: ['boss'], role: 'sales_rep' });
+    expect(store.has('upload_grants/boss')).toBe(false);
   });
 });

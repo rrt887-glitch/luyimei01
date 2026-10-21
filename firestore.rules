@@ -472,8 +472,11 @@ service cloud.firestore {
     // - Authenticated buyer can read/create/update their own profile document (buyers/{uid}).
     // - Active staff can read buyer profiles; super_admin can manage/delete.
     match /buyers/{buyerUid} {
-      allow get: if (isAuthenticated() && request.auth.uid == buyerUid) || isActiveStaff();
-      allow list: if isActiveStaff();
+      // A buyer reads their own profile; the buyer directory (contacts of every registered buyer)
+      // is for super admins only. Sales reps work from leads, which already carry the contact of
+      // the leads they may see (pool + own) — they never need, and may not read, buyer profiles.
+      allow get: if (isAuthenticated() && request.auth.uid == buyerUid) || isAdmin();
+      allow list: if isAdmin();
       allow create, update: if (
         isAuthenticated() &&
         request.auth.uid == buyerUid &&
