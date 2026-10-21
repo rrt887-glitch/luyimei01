@@ -66,9 +66,13 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   const [navOpen, setNavOpen] = useState(false);
   useDialog(navOpen, () => setNavOpen(false));
   const allowedTabs = getAllowedAdminTabs(currentStaff.role);
-  const groups = NAV_GROUPS.map(g => ({ ...g, items: g.items.filter(i => allowedTabs.includes(i.id)) })).filter(
-    g => g.items.length > 0
-  );
+  // Sales reps see only their own account on the team page, so it is named accordingly.
+  const groups = NAV_GROUPS.map(g => ({
+    ...g,
+    items: g.items
+      .filter(i => allowedTabs.includes(i.id))
+      .map(i => (i.id === 'team' && currentStaff.role !== 'super_admin' ? { ...i, label: '我的账号' } : i))
+  })).filter(g => g.items.length > 0);
   const currentLabel = groups.flatMap(g => g.items).find(i => i.id === currentTab)?.label || '';
   const roleLabel = currentStaff.role === 'super_admin' ? '超级管理员' : '销售代表';
 

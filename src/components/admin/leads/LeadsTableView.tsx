@@ -3,7 +3,7 @@ import { formatRelativeTime } from '../../../utils/format';
 import { AdminLead, LeadStage, StaffAccount } from '../../../types/admin';
 import type { StageConfig } from '../../../config/leadStages';
 import { STAGE_BAR_COLORS } from '../../../config/leadStages';
-import { MessageSquare, Trash2, FileText, Inbox, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MessageSquare, Trash2, FileText, Inbox, ChevronUp, ChevronDown, ChevronsUpDown, ChevronLeft, ChevronRight, UserCheck } from 'lucide-react';
 import { EmptyState } from '../AdminUI';
 import { LeadValueEditor } from './LeadValueEditor';
 
@@ -253,6 +253,18 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                     </select>
                   </td>
                   <td>
+                    {/* A sales rep claims a pool lead with one click; an own lead can be released back. */}
+                    {!isSuperAdmin && !lead.assignedStaffId ? (
+                      <button
+                        type="button"
+                        onClick={() => currentStaff && onAssignStaff(lead.id, currentStaff.id)}
+                        className="btn btn-sm btn-outline !min-h-8 w-[8.75rem]"
+                        aria-label={`认领 ${lead.customerName}`}
+                      >
+                        <UserCheck className="w-4 h-4" />
+                        认领
+                      </button>
+                    ) : (
                     <select
                       value={lead.assignedStaffId || ''}
                       onChange={e => onAssignStaff(lead.id, e.target.value)}
@@ -270,6 +282,7 @@ export const LeadsTableView: React.FC<LeadsTableViewProps> = ({
                           </option>
                       ))}
                     </select>
+                    )}
                   </td>
                   <td className="text-[13px] whitespace-nowrap leading-snug min-w-[6rem]">
                     <div className="text-slate-600" title={lastNote ? `最近跟进 ${lastNote}` : '还没有跟进记录'}>

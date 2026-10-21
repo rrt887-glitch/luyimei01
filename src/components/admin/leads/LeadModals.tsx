@@ -14,6 +14,8 @@ export interface LeadNotesModalProps {
   onAddNote: (e: React.FormEvent) => void;
   onUpdateEstimatedValue?: (leadId: string, newVal: number) => Promise<void>;
   onCreateQuotationForLead?: (lead: AdminLead) => void;
+  /** Given for sales reps on a pool lead: puts the lead in the rep's own name. */
+  onClaim?: (lead: AdminLead) => void;
   onClose: () => void;
 }
 
@@ -26,6 +28,7 @@ export const LeadNotesModal: React.FC<LeadNotesModalProps> = ({
   onAddNote,
   onUpdateEstimatedValue,
   onCreateQuotationForLead,
+  onClaim,
   onClose
 }) => {
   const [estInput, setEstInput] = useState<string>('');
@@ -112,7 +115,14 @@ export const LeadNotesModal: React.FC<LeadNotesModalProps> = ({
           {activeLead.location && <span className="text-slate-500">，{activeLead.location}</span>}
         </dd>
         <dt className="text-slate-500">负责人</dt>
-        <dd className="text-night">{activeLead.assignedStaffName || <span className="text-slate-500">公海（未分配）</span>}</dd>
+        <dd className="text-night flex flex-wrap items-center gap-2">
+          {activeLead.assignedStaffName || <span className="text-slate-500">公海（未分配）</span>}
+          {onClaim && !activeLead.assignedStaffId && (
+            <button type="button" onClick={() => onClaim(activeLead)} className="btn btn-sm btn-outline !min-h-7 !py-0.5">
+              认领到我名下
+            </button>
+          )}
+        </dd>
         <dt className="text-slate-500">提交时间</dt>
         <dd className="text-night font-sign">{formatDateTime(activeLead.createdAt)}</dd>
         <dt className="text-slate-500 pt-2">估值（USD）</dt>

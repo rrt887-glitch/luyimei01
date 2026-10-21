@@ -522,8 +522,10 @@ service cloud.firestore {
     // - An active staff member may only touch their own `lastLoginAt` / `updatedAt`.
     // - A super admin may edit display fields (name / email / phone) of any staff document.
     match /staff/{staffUid} {
-      allow get: if isAuthenticated() && (request.auth.uid == staffUid || isActiveStaff());
-      allow list: if isActiveStaff();
+      // Everyone reads their OWN record (whatever its status, so a suspension reaches them at once).
+      // The staff directory — colleagues' names, phones, roles — is for super admins only.
+      allow get: if isAuthenticated() && (request.auth.uid == staffUid || isAdmin());
+      allow list: if isAdmin();
       allow create, delete: if false;
       allow update: if isValidStaffDoc(request.resource.data, staffUid) && (
         (

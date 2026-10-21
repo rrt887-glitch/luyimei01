@@ -52,9 +52,12 @@ export class StaffAuthDomainService {
         const savedStaff = localStorage.getItem(STAFF_CACHE_KEY);
         const parsed = savedStaff ? JSON.parse(savedStaff) : null;
         if (Array.isArray(parsed)) {
+          const me = this.currentStaff;
           this.staffList = parsed
             .filter((s: any) => s && (s.uid || s.id))
-            .map((s: any) => sanitizeStaffProfile(s));
+            .map((s: any) => sanitizeStaffProfile(s))
+            // A sales rep never sees colleagues, not even from a cache left by an admin session.
+            .filter(s => me.role === 'super_admin' || s.id === me.id);
         }
       } catch {
         this.staffList = [];
@@ -135,6 +138,26 @@ export class StaffAuthDomainService {
   ): () => void {
     if (!auth.currentUser) {
       return () => {};
+    }
+
+    // Sales reps may read only their own staff record (firestore.rules): their "directory" is themselves.
+    if (this.currentStaff?.role !== 'super_admin') {
+      const uid = auth.currentUser.uid;
+      return onSnapshot(
+        doc(db, 'staff', uid),
+        snap => {
+          const me = snap.exists() ? sanitizeStaffProfile(snap.data(), snap.id) : null;
+          if (me && getAssignedLeadsCount) me.assignedLeadsCount = getAssignedLeadsCount(me.id);
+          this.staffList = me ? [me] : [];
+          this.saveReadOnlyStaffCache();
+          if (me) this.setAdminSession(me);
+          onUpdate(this.staffList);
+        },
+        err => {
+          console.warn('Firestore own staff record listener warning:', err);
+          onError?.(err);
+        }
+      );
     }
 
     return onSnapshot(
@@ -321,7 +344,8 @@ export class StaffAuthDomainService {
         console.warn('lastLoginAt update warning:', err);
       });
 
-      this.staffList = [staffProfile, ...this.staffList.filter(s => s.id !== staffProfile.id)];
+      this.staffList =
+        staffProfile.role === 'super_admin' ? [staffProfile, ...this.staffList.filter(s => s.id !== staffProfile.id)] : [staffProfile];
       this.setAdminSession(staffProfile);
       this.saveReadOnlyStaffCache();
       this.auditLogger.logAction(

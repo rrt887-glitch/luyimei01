@@ -257,8 +257,12 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
   return (
     <div className="adm-page">
       <PageHeader
-        title="团队与权限"
-        description={`在职 ${activeStaff} 人，共 ${staffList.length} 人。员工的开通、停用、删除和改密都在服务器上完成，立即生效。`}
+        title={isSuperAdmin ? '团队与权限' : '我的账号'}
+        description={
+          isSuperAdmin
+            ? `在职 ${activeStaff} 人，共 ${staffList.length} 人。员工的开通、停用、删除和改密都在服务器上完成，立即生效。`
+            : '你的账号信息。员工名单和其他同事的线索只有超级管理员可以查看；需要改密码或调整权限请联系超级管理员。'
+        }
         actions={
           isSuperAdmin && (
             <>
@@ -276,7 +280,7 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
       />
 
       <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {staffList.map(member => {
+        {(isSuperAdmin ? staffList : staffList.filter(s => s.id === currentStaff.id)).map(member => {
           const isSelected = selectedStaffIds.has(member.id);
           const isSelf = member.id === currentStaff.id;
           const memberLeads = leads.filter(l => l.assignedStaffId === member.id);

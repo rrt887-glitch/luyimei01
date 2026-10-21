@@ -98,6 +98,19 @@ export const LeadsFilterToolbar: React.FC<LeadsFilterToolbarProps> = ({
               ))}
             </select>
           )}
+          {!isSuperAdmin && (
+            // Sales reps see the pool plus their own leads; this splits the two.
+            <select
+              value={filterStaffId === 'unassigned' ? 'unassigned' : filterStaffId === 'all' ? 'all' : 'mine'}
+              onChange={e => onChangeStaffFilter(e.target.value === 'mine' ? staffList[0]?.id || 'all' : e.target.value)}
+              className="field field-sm w-auto min-w-[9rem]"
+              aria-label="线索范围"
+            >
+              <option value="all">全部（公海 + 我的）</option>
+              <option value="unassigned">公海（可认领）</option>
+              <option value="mine">我的线索</option>
+            </select>
+          )}
           <span className="text-sm text-slate-500">
             <span className="font-sign font-semibold text-night">{filteredCount}</span> 条
             {pipelineUsd > 0 && (

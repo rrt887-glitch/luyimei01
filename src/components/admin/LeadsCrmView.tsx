@@ -100,11 +100,22 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
   };
 
   const handleAssignStaff = async (leadId: string, staffId: string) => {
+    const claiming = !isSuperAdmin && !!staffId && staffId === currentStaff?.id;
     try {
       await adminApi.assignLead(leadId, staffId);
       onRefreshLeads();
-      onShowToast(staffId ? '负责人已更新' : '已退回公海');
+      if (activeLeadForNotes?.id === leadId) {
+        const fresh = adminApi.getLeads().find(l => l.id === leadId);
+        if (fresh) setActiveLeadForNotes({ ...fresh });
+      }
+      onShowToast(claiming ? '已认领，这条线索归你跟进' : staffId ? '负责人已更新' : '已退回公海');
     } catch (err) {
+      // Two reps claiming the same pool lead: firestore.rules refuse the second one.
+      if ((err as { code?: string })?.code === 'permission-denied' && claiming) {
+        onShowToast('这条线索刚被其他同事认领了');
+        onRefreshLeads();
+        return;
+      }
       onShowToast(`云端指派失败：${(err as Error).message}`);
     }
   };
@@ -402,6 +413,7 @@ export const LeadsCrmView: React.FC<LeadsCrmViewProps> = ({
         onAddNote={handleAddNote}
         onUpdateEstimatedValue={handleUpdateEstimatedValue}
         onCreateQuotationForLead={handleCreateQuotationForLead}
+        onClaim={!isSuperAdmin && currentStaff ? lead => void handleAssignStaff(lead.id, currentStaff.id) : undefined}
         onClose={() => setActiveLeadForNotes(null)}
       />
 

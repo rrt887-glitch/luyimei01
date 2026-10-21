@@ -144,6 +144,18 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
     it('anonymous visitors cannot read the staff directory', async () => {
       await assertFails(getDoc(doc(anon(), 'staff', 'admin')));
     });
+
+    it('sales reps see only their own staff record; the directory is for super admins', async () => {
+      const repA = asUser('repA');
+      await assertSucceeds(getDoc(doc(repA, 'staff', 'repA')));
+      await assertFails(getDoc(doc(repA, 'staff', 'repB')));
+      await assertFails(getDoc(doc(repA, 'staff', 'admin')));
+      await assertFails(getDocs(collection(repA, 'staff')));
+      await assertSucceeds(getDocs(collection(asUser('admin'), 'staff')));
+      // A suspended person can still read their own record (that is how the console learns it ended).
+      await assertSucceeds(getDoc(doc(asUser('suspendedAdmin'), 'staff', 'suspendedAdmin')));
+      await assertFails(getDocs(collection(asUser('suspendedAdmin'), 'staff')));
+    });
   });
 
   // -------------------------------------------------------------------------
