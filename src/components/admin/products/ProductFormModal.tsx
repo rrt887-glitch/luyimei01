@@ -5,11 +5,14 @@ import { Modal, FormField, ProgressBar } from '../AdminUI';
 import { MediaUploads, formatMb } from './useMediaUploads';
 import { SmartImage } from '../../common/SmartImage';
 import { ProductCategoryDef } from '../../../config/categories';
+import { UNITS } from '../../../config/units';
 
 export interface ProductFormState {
   model: string;
   customName: string;
   price: string;
+  /** Pricing unit key from src/config/units.ts, e.g. 'Ton', 'SqM', 'Set'. */
+  unit: string;
   tierPrice: string;
   type: string;
   spec: string;
@@ -147,6 +150,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </FormField>
             <FormField label="标价（USD）" hint="可写区间，如 $950–$1,350">
               <input type="text" required value={form.price} onChange={e => onChangeForm({ price: e.target.value })} className="field field-sm font-sign" />
+            </FormField>
+            <FormField label="计价单位" hint="官网显示为“标价 / 单位”，并按访客语言翻译；开报价单时自动带入">
+              <select value={form.unit} onChange={e => onChangeForm({ unit: e.target.value })} className="field field-sm">
+                {UNITS.map(u => (
+                  <option key={u.key} value={u.key}>
+                    {u.label.zh}（{u.label.en}）
+                  </option>
+                ))}
+              </select>
             </FormField>
             <FormField label="批量价（USD）" hint="如 $850（10 台起）">
               <input type="text" value={form.tierPrice} onChange={e => onChangeForm({ tierPrice: e.target.value })} className="field field-sm font-sign" />

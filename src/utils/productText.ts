@@ -1,6 +1,7 @@
 import { Product, ProductTextFields, SupportedLanguage } from '../types';
 import { initialProducts } from '../data/products';
 import { ProductCategoryDef, labelForCategoryId } from '../config/categories';
+import { unitKeyFrom, unitName } from '../config/units';
 
 export interface LocalizedProduct {
   name: string;
@@ -73,7 +74,9 @@ export function localizeProduct(
     name,
     desc,
     spec,
-    unit: p.unit || data[p.unitKey] || '',
+    // A unit chosen in the console (a key such as 'SqM') is shown in the visitor's language;
+    // free text from older data is shown as written; otherwise the built-in dictionary unit.
+    unit: p.unit ? (unitKeyFrom(p.unit) ? `/ ${unitName(unitKeyFrom(p.unit), lang)}` : p.unit) : data[p.unitKey] || '',
     category,
     kind: keepsBuiltinKind ? data[p.catKey] : category,
     ...supplyText

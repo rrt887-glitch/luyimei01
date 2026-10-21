@@ -7,6 +7,7 @@ import { adminApi } from '../../services/adminApi';
 import { Plus, MessageCircle } from 'lucide-react';
 import { PageHeader } from './AdminUI';
 import { zh } from '../../i18n/locales/zh';
+import { unitKeyFrom } from '../../config/units';
 
 /** Built-in catalogue text for a translation key such as 'p1Spec' (undefined for free text). */
 const builtinText = (key?: string): string | undefined =>
@@ -43,6 +44,7 @@ const INITIAL_FORM_STATE: ProductFormState = {
   model: '',
   customName: '',
   price: '$500–$800',
+  unit: 'Ton',
   tierPrice: '$450 (10+批发起订)',
   type: 'material',
   spec: '标准工业出口防护包装 / 25kg防潮桶装',
@@ -234,6 +236,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     setForm({
       ...INITIAL_FORM_STATE,
       type: categoryFilter !== 'all' && categoryIds.has(categoryFilter) ? categoryFilter : categories[0]?.id || 'material',
+      unit: categoryFilter === 'equipment' ? 'Set' : 'Ton',
       model: 'LYM-NEW-' + Math.floor(Math.random() * 900 + 100)
     });
     setEditingProduct(null);
@@ -260,6 +263,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         customDesc: form.customDesc.trim() || undefined,
         price: form.price,
         unitKey: form.type === 'equipment' ? 'p3Unit' : 'p1Unit',
+        unit: form.unit,
         specKey: form.spec,
         customSpec: form.spec.trim() || undefined,
         inStock: form.inStock,
@@ -298,6 +302,8 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
       model: p.model,
       customName: p.customName || (p.nameKey.startsWith('p') ? '' : p.nameKey) || '',
       price: p.price,
+      // Saved unit, else the built-in one ("/ 吨" -> Ton), else by product kind.
+      unit: unitKeyFrom(p.unit) || unitKeyFrom(builtinText(p.unitKey)) || (p.type === 'equipment' ? 'Set' : 'Ton'),
       tierPrice: p.tierPrices?.[0]?.priceUsd || '$420 (批发优惠价)',
       type: p.type,
       // Show the readable built-in spec instead of its translation key (e.g. 'p1Spec').
@@ -337,6 +343,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         customName: form.customName.trim() || undefined,
         nameKey: form.customName.trim() || (editingProduct.nameKey.startsWith('p') ? editingProduct.nameKey : 'p1Name'),
         price: form.price,
+        unit: form.unit,
         type: form.type,
         specKey: specKeepsBuiltin ? editingProduct.specKey : form.spec.trim() || editingProduct.specKey,
         // Untouched built-in specs stay as translation keys so every site language keeps its own text.
