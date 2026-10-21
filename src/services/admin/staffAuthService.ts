@@ -169,6 +169,35 @@ export class StaffAuthDomainService {
     );
   }
 
+  /**
+   * Watches the signed-in person's OWN staff document. firestore.rules let everyone read their own
+   * staff document whatever its status, so a suspension or removal arrives here at once — unlike
+   * the directory listener above, which a suspended person may no longer read (that listener just
+   * fails with permission-denied and never delivers the change).
+   */
+  subscribeToOwnStaffDoc(
+    uid: string,
+    onChange: (state: { status: 'active' | 'suspended' | 'deleted'; staff?: StaffAccount }) => void,
+    onError?: (err: Error) => void
+  ): () => void {
+    if (!uid || !auth.currentUser) return () => {};
+    return onSnapshot(
+      doc(db, 'staff', uid),
+      snap => {
+        if (!snap.exists()) {
+          onChange({ status: 'deleted' });
+          return;
+        }
+        const staff = sanitizeStaffProfile(snap.data(), snap.id);
+        onChange({ status: staff.status === 'suspended' ? 'suspended' : 'active', staff });
+      },
+      err => {
+        console.warn('Own staff record listener warning:', err);
+        onError?.(err);
+      }
+    );
+  }
+
   getStaffList(getAssignedLeadsCount?: (staffId: string) => number): StaffAccount[] {
     if (getAssignedLeadsCount) {
       return this.staffList.map(s => ({ ...s, assignedLeadsCount: getAssignedLeadsCount(s.id) }));

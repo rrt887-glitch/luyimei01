@@ -1,4 +1,6 @@
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../../services/firebase';
 import { Product } from '../../types';
 import { AdminLead, AuditLogItem, CustomerProfile, StaffAccount } from '../../types/admin';
 import { adminApi } from '../../services/adminApi';
@@ -73,13 +75,35 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
     setAuditLogs(adminApi.getAuditLogs());
   }, [onProductsChange, updateCurrentStaff]);
 
+  // Several signals can report the same ending (own record, sign-out, a refused listener): act once.
+  const endedRef = useRef(false);
   const endSession = useCallback(
     (message: string) => {
+      if (endedRef.current) return;
+      endedRef.current = true;
       adminApi.clearAdminSession();
       onSessionEnded();
       showToast(message);
     },
     [onSessionEnded, showToast]
+  );
+
+  /** A listener was refused: maybe the account was just suspended or removed. Check right away. */
+  const recheckSession = useCallback(
+    (err: unknown) => {
+      if ((err as { code?: string })?.code !== 'permission-denied') return;
+      void adminApi.validateCurrentSession().then(r => {
+        if (r.valid || r.reason === 'network_error') return;
+        endSession(
+          r.reason === 'suspended'
+            ? '安全警示：您的员工账号已被停用，中台通行权限已强制终止！'
+            : r.reason === 'deleted'
+            ? '安全警示：您的员工账号已被移除，中台会话已立即终止！'
+            : '登录已失效，请重新登录。'
+        );
+      });
+    },
+    [endSession]
   );
 
   const uid = session.uid || session.id;
@@ -106,7 +130,10 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
         setLeads(list);
         setLastSyncTime(clock());
       },
-      err => console.warn('Real-time leads sync warning:', err)
+      err => {
+        console.warn('Real-time leads sync warning:', err);
+        recheckSession(err);
+      }
     );
     const unsubStaff = adminApi.subscribeToStaff(
       list => {
@@ -121,7 +148,10 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
           else if (me.status === 'suspended') endSession('安全警示：您的员工账号已被停用，中台通行权限已强制终止！');
         }
       },
-      err => console.warn('Real-time staff sync warning:', err)
+      err => {
+        console.warn('Real-time staff sync warning:', err);
+        recheckSession(err);
+      }
     );
     // Customers & audit logs are super-admin only (firestore.rules); reps never open these listeners.
     const isSuper = role === 'super_admin';
@@ -150,7 +180,29 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
       unsubCustomers();
       unsubAudit();
     };
-  }, [uid, role, refresh, onProductsChange, updateCurrentStaff, endSession]);
+  }, [uid, role, refresh, onProductsChange, updateCurrentStaff, endSession, recheckSession]);
+
+  // Suspension / removal ends the console AT ONCE: the person's own staff record stays readable to
+  // them whatever its status, so this listener always receives the change. Signing out of Firebase
+  // (e.g. in another tab) ends it too.
+  useEffect(() => {
+    const unsubOwn = adminApi.subscribeToOwnStaffDoc(
+      uid,
+      ({ status, staff: me }) => {
+        if (status === 'deleted') endSession('安全警示：您的员工账号已被移除，中台会话已立即终止！');
+        else if (status === 'suspended') endSession('安全警示：您的员工账号已被停用，中台通行权限已强制终止！');
+        else if (me) updateCurrentStaff(me);
+      },
+      recheckSession
+    );
+    const unsubAuth = onAuthStateChanged(auth, user => {
+      if (!user || user.uid !== uid) endSession('登录已失效，请重新登录。');
+    });
+    return () => {
+      unsubOwn();
+      unsubAuth();
+    };
+  }, [uid, endSession, recheckSession, updateCurrentStaff]);
 
   // Never render a tab the current role is not allowed to use (e.g. after a role change).
   useEffect(() => {

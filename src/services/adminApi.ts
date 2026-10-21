@@ -293,6 +293,14 @@ class AdminApiService {
     );
   }
 
+  subscribeToOwnStaffDoc(
+    uid: string,
+    onChange: (state: { status: 'active' | 'suspended' | 'deleted'; staff?: StaffAccount }) => void,
+    onError?: (err: Error) => void
+  ): () => void {
+    return this.staffService.subscribeToOwnStaffDoc(uid, onChange, onError);
+  }
+
   getStaffList(): StaffAccount[] {
     return this.staffService.getStaffList(staffId =>
       this.leadsService.getAssignedLeadsCount(staffId)
