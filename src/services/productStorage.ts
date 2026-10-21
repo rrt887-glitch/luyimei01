@@ -1,7 +1,7 @@
 import { Product } from '../types';
 import { initialProducts, BUNDLED_IMAGES } from '../data/products';
 import { db, auth } from './firebase';
-import { collection, doc, setDoc, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 import { sanitizeProductForFirestore } from '../utils/firestoreSanitizer';
 
 /**
@@ -240,6 +240,27 @@ export async function persistProductUpdate(product: Product): Promise<void> {
     setDoc(doc(db, FIRESTORE_PRODUCTS_COLLECTION, String(product.id)), payload),
     FIRESTORE_WRITE_TIMEOUT_MS
   );
+}
+
+/**
+ * Writes many products in batches (all-or-nothing per batch of 100). `onProgress` receives the
+ * number written so far. Used by the spreadsheet import.
+ */
+export async function persistProductsBatch(products: Product[], onProgress?: (done: number) => void): Promise<void> {
+  if (!auth.currentUser) {
+    throw new Error('未检测到有效的管理员云端登录凭证，无法保存商品至云端数据库。');
+  }
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < products.length; i += 100) {
+    const chunk = products.slice(i, i + 100);
+    const batch = writeBatch(db);
+    for (const product of chunk) {
+      const payload = sanitizeProductForFirestore({ ...product, isDeleted: false, userModified: true, updatedAt: nowIso });
+      batch.set(doc(db, FIRESTORE_PRODUCTS_COLLECTION, String(product.id)), payload);
+    }
+    await withTimeout(batch.commit(), 20000);
+    onProgress?.(Math.min(products.length, i + chunk.length));
+  }
 }
 
 export async function persistProductDelete(id: string): Promise<void> {

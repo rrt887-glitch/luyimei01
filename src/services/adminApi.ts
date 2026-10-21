@@ -5,6 +5,7 @@ import {
   initPersistentProducts,
   persistProductUpdate,
   persistProductDelete,
+  persistProductsBatch,
   subscribeToFirestoreProducts,
   loadReadOnlyCachedProducts
 } from './productStorage';
@@ -132,6 +133,32 @@ class AdminApiService {
       `型号: ${newProduct.model} | 价格: ${newProduct.price}`
     );
     return newProduct;
+  }
+
+  /**
+   * Spreadsheet import: creates the new products and applies the updates in batches, then writes
+   * ONE audit entry for the whole file.
+   */
+  async importProducts(
+    created: Omit<Product, 'id'>[],
+    updated: Product[],
+    sourceName: string,
+    onProgress?: (done: number) => void
+  ): Promise<{ created: number; updated: number }> {
+    const actor = this.assertSuperAdminForProductWrite();
+    const newProducts: Product[] = created.map(p => ({ ...p, id: doc(collection(db, 'products')).id, isDeleted: false, userModified: true }));
+    const all = [...newProducts, ...updated.map(p => ({ ...p, isDeleted: false, userModified: true }))];
+    await persistProductsBatch(all, onProgress);
+    // Upsert by id: the live listener may already have delivered some of these (see addProduct).
+    const byId = new Map(all.map(p => [p.id, p]));
+    this.products = [...newProducts, ...this.products.filter(p => !newProducts.some(n => n.id === p.id)).map(p => byId.get(p.id) || p)];
+    this.auditService.logAction(
+      actor,
+      '批量导入商品',
+      sourceName,
+      `新增 ${newProducts.length} 款，更新 ${updated.length} 款${newProducts.length ? `｜新增型号：${newProducts.slice(0, 10).map(p => p.model).join('、')}${newProducts.length > 10 ? ' 等' : ''}` : ''}`
+    );
+    return { created: newProducts.length, updated: updated.length };
   }
 
   async updateProduct(id: string, updates: Partial<Product>): Promise<Product | null> {

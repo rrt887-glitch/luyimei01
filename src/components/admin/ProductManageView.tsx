@@ -4,7 +4,7 @@ import { initialProducts } from '../../data/products';
 import { useProductCategories } from '../../config/categories';
 import { hasConfiguredWhatsApp, useSiteContactConfig } from '../../config/whatsapp';
 import { adminApi } from '../../services/adminApi';
-import { Plus, MessageCircle } from 'lucide-react';
+import { Plus, MessageCircle, Upload, Download } from 'lucide-react';
 import { PageHeader } from './AdminUI';
 import { zh } from '../../i18n/locales/zh';
 import { unitKeyFrom } from '../../config/units';
@@ -19,6 +19,15 @@ import { ProductTable } from './products/ProductTable';
 import { ProductFormModal, ProductFormState } from './products/ProductFormModal';
 import { ProductQuickModals } from './products/ProductQuickModals';
 import { CategoryManagerModal } from './products/CategoryManagerModal';
+import { ImportProductsModal } from './products/ImportProductsModal';
+import {
+  ParsedProductRow,
+  buildProductExportSheets,
+  buildProductTemplateSheets,
+  newProductFromRow,
+  updatedProductFromRow
+} from './products/productsSpreadsheet';
+import { buildXlsx, downloadBlob } from '../../utils/xlsx';
 
 /** Drop empty translation fields so Firestore only stores what was actually written. */
 function cleanTranslations(t: ProductTranslations): ProductTranslations | undefined {
@@ -85,6 +94,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{ id: string; model: string } | null>(null);
   const [quickSupplyProduct, setQuickSupplyProduct] = useState<Product | null>(null);
@@ -230,6 +240,34 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     } catch (err) {
       onShowToast((err as Error).message || '批量删除商品同步失败，请检查网络或权限');
     }
+  };
+
+  const today = () => new Date().toISOString().slice(0, 10);
+  const handleDownloadProductTemplate = () => downloadBlob(buildXlsx(buildProductTemplateSheets(categories)), 'LYM_products_upload_template.xlsx');
+  const handleExportProducts = () => {
+    const list = products.filter(p => !p.isDeleted);
+    downloadBlob(
+      buildXlsx(
+        buildProductExportSheets(
+          list,
+          categories,
+          p => p.customName || builtinText(p.nameKey) || p.nameKey || p.model,
+          p => p.customSpec || builtinText(p.specKey) || '',
+          p => builtinText(p.unitKey)
+        )
+      ),
+      `LYM_products_${today()}.xlsx`
+    );
+    onShowToast(`已导出 ${list.length} 款商品`);
+  };
+  const handleImportProducts = async (rows: ParsedProductRow[], fileName: string, onProgress: (done: number) => void) => {
+    const created = rows.filter(r => !r.existing).map(r => newProductFromRow(r.item));
+    const updated = rows.filter(r => r.existing).map(r => updatedProductFromRow(r.existing!, r.item));
+    const res = await adminApi.importProducts(created, updated, fileName, onProgress);
+    onRefreshProducts();
+    onShowToast(
+      res.updated ? `已上架 ${res.created} 款新商品，更新 ${res.updated} 款，官网同步显示` : `已上架 ${res.created} 款新商品，官网同步显示`
+    );
   };
 
   const handleOpenAdd = () => {
@@ -450,10 +488,20 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         title="商品库"
         description={`在售 ${inStockCount} 款，共 ${products.length} 款。这里的修改会实时同步到官网产品目录和供货信息表。`}
         actions={
-          <button onClick={handleOpenAdd} className="btn btn-sm btn-primary">
-            <Plus className="w-4 h-4" />
-            添加商品
-          </button>
+          <>
+            <button onClick={() => setIsImportOpen(true)} className="btn btn-sm btn-outline">
+              <Upload className="w-4 h-4" />
+              批量上架
+            </button>
+            <button onClick={handleExportProducts} className="btn btn-sm btn-outline">
+              <Download className="w-4 h-4" />
+              导出
+            </button>
+            <button onClick={handleOpenAdd} className="btn btn-sm btn-primary">
+              <Plus className="w-4 h-4" />
+              添加商品
+            </button>
+          </>
         }
       />
 
@@ -521,6 +569,15 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
           setIsAddModalOpen(false);
           setEditingProduct(null);
         }}
+      />
+
+      <ImportProductsModal
+        open={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        products={products}
+        categories={categories}
+        onDownloadTemplate={handleDownloadProductTemplate}
+        onImport={handleImportProducts}
       />
 
       <CategoryManagerModal
