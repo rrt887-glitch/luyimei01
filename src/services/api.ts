@@ -14,7 +14,8 @@ import {
   deleteDoc,
   onSnapshot,
   query,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import {
   onAuthStateChanged,
@@ -54,6 +55,17 @@ function buyerAuthUser(): { uid: string; email: string | null } | null {
   if (!user) return null;
   if (isReservedStaffEmail(user.email) || hasAdminSession()) return null;
   return user;
+}
+
+/**
+ * Creates an inquiry together with its delivery receipt (firestore.rules: the receipt can only be
+ * created in the same batch). The receipt later proves, to anyone holding the id, that it arrived.
+ */
+function createInquiryWithReceipt(id: string, payload: Record<string, any>) {
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'inquiries', id), payload);
+  batch.set(doc(db, 'inquiry_receipts', id), { createdAt: String(payload.createdAt || new Date().toISOString()).slice(0, 64) });
+  return batch.commit();
 }
 
 export interface OutboxInquiryItem {
@@ -310,11 +322,11 @@ class ApiService {
         if (owner && owner !== signedInUid) continue;
         const inqRef = doc(db, 'inquiries', item.record.id);
         try {
-          await withTimeout(setDoc(inqRef, sanitizeInquiryForFirestore(item.payload)), 8000);
+          await withTimeout(createInquiryWithReceipt(item.record.id, sanitizeInquiryForFirestore(item.payload)), 8000);
           done.add(item.record.id);
           this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
         } catch (err) {
-          if ((err as { code?: string })?.code === 'permission-denied' && (await this.alreadyDelivered(inqRef, owner, item))) {
+          if ((err as { code?: string })?.code === 'permission-denied' && (await this.alreadyDelivered(inqRef, owner))) {
             done.add(item.record.id);
             this.markLocalInquirySynced(item.record.id, item.record.buyerUid);
           } else {
@@ -334,20 +346,22 @@ class ApiService {
 
   /**
    * After the server refused to (re)create a queued inquiry: is it because the inquiry is already
-   * there? A buyer can read their own inquiries, so for them it is checked for real. An anonymous
-   * visitor cannot read anything back; for them a refusal counts as "already there" only when an
-   * earlier attempt may have reached the server (the first reply was lost or a retry happened):
-   * a visitor may only CREATE inquiries, so re-sending an existing one is the refusal expected.
+   * there? Its delivery receipt answers that for anyone, anonymous visitors included. A buyer can
+   * also read their own inquiry (covers inquiries sent before receipts existed). When neither can
+   * be confirmed the item stays queued: it is never dropped on a guess.
    */
-  private async alreadyDelivered(ref: ReturnType<typeof doc>, owner: string, item: OutboxInquiryItem): Promise<boolean> {
-    if (owner) {
-      try {
-        return (await withTimeout(getDoc(ref), 6000)).exists();
-      } catch {
-        return false;
-      }
+  private async alreadyDelivered(ref: ReturnType<typeof doc>, owner: string): Promise<boolean> {
+    try {
+      if ((await withTimeout(getDoc(doc(db, 'inquiry_receipts', ref.id)), 6000)).exists()) return true;
+    } catch {
+      // Unreachable: decide below / keep the item.
     }
-    return Boolean(item.maybeDelivered || (item.retryCount || 0) > 0);
+    if (!owner) return false;
+    try {
+      return (await withTimeout(getDoc(ref), 6000)).exists();
+    } catch {
+      return false;
+    }
   }
 
   private getBuyerProfiles(): BuyerProfile[] {
@@ -603,7 +617,7 @@ class ApiService {
     const inqRef = doc(db, 'inquiries', cleanId);
 
     try {
-      await withTimeout(setDoc(inqRef, payload), 8000);
+      await withTimeout(createInquiryWithReceipt(cleanId, payload), 8000);
 
       // Record to current buyer's inquiry history as synced
       this.recordUserInquiry({ ...cleanRecord, syncStatus: 'synced' }, buyerUid);

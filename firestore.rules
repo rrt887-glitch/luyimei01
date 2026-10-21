@@ -593,6 +593,22 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Delivery receipts for inquiries. A receipt carries no personal data and can be created ONLY in
+    // the same batch that creates its inquiry (exists() sees the state before the batch,
+    // existsAfter() the state after it). A browser whose first attempt timed out can therefore
+    // check, by the inquiry's (unguessable) id, whether it really arrived — even as an anonymous
+    // visitor, who may not read inquiries. Read one by id only; listing is never allowed.
+    match /inquiry_receipts/{inquiryId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if
+        !exists(/databases/$(database)/documents/inquiries/$(inquiryId)) &&
+        existsAfter(/databases/$(database)/documents/inquiries/$(inquiryId)) &&
+        request.resource.data.keys().hasOnly(['createdAt']) &&
+        request.resource.data.createdAt is string && request.resource.data.createdAt.size() <= 64;
+      allow update, delete: if false;
+    }
+
     // Default deny for any other collection
     match /{document=**} {
       allow read, write: if false;

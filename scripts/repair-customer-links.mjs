@@ -10,6 +10,8 @@
  *   2. Credit missed quotations. Before v15.6 a quotation processed while its lead had no customer
  *      yet, or after the lead was handed to a colleague, was marked processed without being added
  *      to the customer's total. Such quotations are credited now and their marker updated.
+ *   3. Restore cents lost to an early version that added quotations to customer totals rounded to
+ *      whole dollars (e.g. two quotations of 40.25 shown as 80.25 instead of 80.50).
  *
  * Usage:
  *   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/serviceAccountKey.json"
@@ -136,7 +138,45 @@ async function main() {
     });
   }
 
-  console.log(`\n${moved} inquiry link(s) to split, ${credited} quotation(s) to credit.${APPLY ? ' Done.' : ' Nothing written (dry run).'}`);
+  // ---------------------------------------------------------------- 3. cents lost to old rounding
+  // An early version added quotations to the customer total rounded to whole dollars (40.25 -> 40).
+  // Recompute each customer's total from the quotations credited to it. Only differences that
+  // rounding can explain (at most $0.50 per credited quotation) are corrected; anything larger
+  // (e.g. totals carried over from before quotations were tracked) is listed for a manual check.
+  const [custNow, markersNow] = await Promise.all([db.collection('customers').get(), db.collection('_processed_events').get()]);
+  const quotationTotal = new Map(quotationsSnap.docs.map(q => [q.id, toCents(Number(q.get('totalAmountUsd')) || 0)]));
+  const creditedTo = new Map(); // customerId -> { sum, n }
+  for (const m of markersNow.docs) {
+    if (!m.id.startsWith('quotation_')) continue;
+    const status = m.get('status');
+    const custId = m.get('customerId');
+    if (!custId || (status && status !== 'credited')) continue;
+    const amount = quotationTotal.get(m.id.slice('quotation_'.length));
+    if (!amount) continue;
+    const entry = creditedTo.get(custId) || { sum: 0, n: 0 };
+    entry.sum = toCents(entry.sum + amount);
+    entry.n++;
+    creditedTo.set(custId, entry);
+  }
+  let rounded = 0;
+  let toCheck = 0;
+  for (const c of custNow.docs) {
+    const entry = creditedTo.get(c.id);
+    if (!entry) continue;
+    const actual = toCents(Number(c.get('totalQuotationUsd')) || 0);
+    const diff = toCents(entry.sum - actual);
+    if (diff === 0) continue;
+    if (Math.abs(diff) <= 0.5 * entry.n) {
+      console.log(`[round] ${c.id}: total $${actual} -> $${toCents(actual + diff)} (${entry.n} quotation(s) add up to $${entry.sum})`);
+      rounded++;
+      if (APPLY) await c.ref.update({ totalQuotationUsd: FieldValue.increment(diff) });
+    } else {
+      console.log(`[check] ${c.id}: total $${actual}, credited quotations add up to $${entry.sum} — left unchanged, please check by hand`);
+      toCheck++;
+    }
+  }
+
+  console.log(`\n${moved} inquiry link(s) to split, ${credited} quotation(s) to credit, ${rounded} total(s) to correct for rounding, ${toCheck} total(s) to check by hand.${APPLY ? ' Done.' : ' Nothing written (dry run).'}`);
 }
 
 main().catch(err => {

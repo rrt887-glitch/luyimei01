@@ -95,12 +95,17 @@ const adminPaths = vi.hoisted(() => {
     app: p.join(lib, 'app/index.js'),
     auth: p.join(lib, 'auth/index.js'),
     firestore: p.join(lib, 'firestore/index.js'),
+    storage: p.join(lib, 'storage/index.js'),
     // scripts/*.mjs run from the project root and load the root copy.
     rootApp: p.join(rootLib, 'app/index.js'),
     rootFirestore: p.join(rootLib, 'firestore/index.js')
   };
 });
 vi.mock(adminPaths.app, () => ({ initializeApp: () => ({}) }));
+const deletedObjects: string[] = [];
+vi.mock(adminPaths.storage, () => ({
+  getStorage: () => ({ bucket: () => ({ file: (name: string) => ({ delete: async () => void deletedObjects.push(name) }) }) })
+}));
 vi.mock(adminPaths.rootApp, () => ({ initializeApp: () => ({}), applicationDefault: () => ({}) }));
 vi.mock(adminPaths.rootFirestore, () => ({
   getFirestore: () => fakeDb,
@@ -130,6 +135,8 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     store.clear();
     process.env.NOTIFY_WEBHOOK_URL = '';
     vi.restoreAllMocks();
+    // In production Cloud Functions provide this; the storage trigger needs a bucket name.
+    process.env.FIREBASE_CONFIG ??= JSON.stringify({ projectId: 'demo-test', storageBucket: 'demo-test.appspot.com' });
     fns ??= await import('../functions/src/index');
   });
 
@@ -178,16 +185,16 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     expect(store.get('_processed_events/quotation_PI-4')?.status).toBe('skipped');
   });
 
-  it('#35 webhook HTTP 500: no marker, event retried, message sent on redelivery, then never again', async () => {
+  it('#35 webhook HTTP 500: marked failed, event retried, message sent on redelivery, then never again', async () => {
     process.env.NOTIFY_WEBHOOK_URL = 'https://hooks.example.test/robot';
     const fetchMock = vi.spyOn(globalThis, 'fetch');
     fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }));
     lead('INQ-5', { notes: undefined });
     await expect(run(fns.onInquiryCreated, 'inquiries/INQ-5', { inquiryId: 'INQ-5' })).rejects.toThrow(/notification failed/);
-    expect(store.has('_processed_events/inquiry_notify_INQ-5')).toBe(false);
+    expect(store.get('_processed_events/inquiry_notify_INQ-5')?.status).toBe('failed'); // certainly not sent -> retried
     fetchMock.mockResolvedValueOnce(new Response('', { status: 200 }));
     await run(fns.onInquiryCreated, 'inquiries/INQ-5', { inquiryId: 'INQ-5' });
-    expect(store.has('_processed_events/inquiry_notify_INQ-5')).toBe(true);
+    expect(store.get('_processed_events/inquiry_notify_INQ-5')?.status).toBe('sent');
     await run(fns.onInquiryCreated, 'inquiries/INQ-5', { inquiryId: 'INQ-5' });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // Inquiry counted once despite three deliveries.
@@ -236,7 +243,7 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     process.argv.push('--apply');
     try {
-      await import('../scripts/repair-customer-links.mjs');
+      await import(/* @vite-ignore */ '../scripts/repair-customer-links.mjs?run=' + Math.random());
       await vi.waitFor(() => expect(store.get('_processed_events/quotation_PI-A')?.status).toBe('credited'));
     } finally {
       process.argv.pop();
@@ -260,5 +267,110 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     await expect(call('gone')).rejects.toMatchObject({ code: 'permission-denied' });
     await expect(call('rep')).rejects.toMatchObject({ code: 'permission-denied' });
     expect(claims.has('gone')).toBe(false);
+  });
+
+  it('#1 a file uploaded by someone who is no longer an active super admin is removed at once', async () => {
+    deletedObjects.length = 0;
+    apply('staff/admin', { id: 'admin', role: 'super_admin', status: 'active' }, false);
+    apply('staff/gone', { id: 'gone', role: 'super_admin', status: 'suspended' }, false);
+    const upload = (name: string, uploaderUid?: string) =>
+      fns.onProductMediaUploaded.run({ data: { name, bucket: 'b', metadata: uploaderUid ? { uploaderUid } : undefined } });
+    await upload('products/p1/images/ok.webp', 'admin');
+    await upload('products/p1/images/late.webp', 'gone');
+    await upload('products/p1/images/anon.webp');
+    await upload('other/file.txt', 'gone');
+    expect(deletedObjects).toEqual(['products/p1/images/late.webp', 'products/p1/images/anon.webp']);
+  });
+
+  it('#1 deleteProductMedia: live staff check, product media paths only', async () => {
+    deletedObjects.length = 0;
+    apply('staff/admin', { id: 'admin', role: 'super_admin', status: 'active' }, false);
+    apply('staff/gone', { id: 'gone', role: 'super_admin', status: 'suspended' }, false);
+    const url = (path: string) => `https://firebasestorage.googleapis.com/v0/b/demo.appspot.com/o/${encodeURIComponent(path)}?alt=media&token=t`;
+    const call = (uid: string, urls: string[]) => fns.deleteProductMedia.run({ auth: { uid, token: {} }, data: { urls }, rawRequest: {} as any });
+    await expect(call('gone', [url('products/p1/images/a.webp')])).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(deletedObjects).toEqual([]);
+    const res = await call('admin', [url('products/p1/images/a.webp'), url('products/p1/videos/v.mp4'), url('signup_captchas/x'), url('products/../staff/x'), 'not a url']);
+    expect(res).toEqual({ deleted: 2 });
+    expect(deletedObjects).toEqual(['products/p1/images/a.webp', 'products/p1/videos/v.mp4']);
+  });
+
+  it('#4/#6 parallel redeliveries send the notification once; a lost reply is never resent', async () => {
+    process.env.NOTIFY_WEBHOOK_URL = 'https://hooks.example.test/robot';
+    lead('INQ-N1');
+    let release!: () => void;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise(r => (release = () => r(new Response('{"errcode":0,"errmsg":"ok"}', { status: 200 }))))
+    );
+    const first = run(fns.onInquiryCreated, 'inquiries/INQ-N1', { inquiryId: 'INQ-N1' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Second delivery while the first is still sending: must not send, asks to be retried.
+    await expect(run(fns.onInquiryCreated, 'inquiries/INQ-N1', { inquiryId: 'INQ-N1' })).rejects.toThrow(/another delivery/);
+    release();
+    await first;
+    await run(fns.onInquiryCreated, 'inquiries/INQ-N1', { inquiryId: 'INQ-N1' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.get('_processed_events/inquiry_notify_INQ-N1')?.status).toBe('sent');
+
+    // Reply lost (timeout): recorded as uncertain and not sent again.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    lead('INQ-N2');
+    fetchMock.mockReset().mockRejectedValue(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }));
+    await run(fns.onInquiryCreated, 'inquiries/INQ-N2', { inquiryId: 'INQ-N2' });
+    await run(fns.onInquiryCreated, 'inquiries/INQ-N2', { inquiryId: 'INQ-N2' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.get('_processed_events/inquiry_notify_INQ-N2')?.status).toBe('uncertain');
+
+    // A delivery that died mid-send (lease expired, still "sending"): not resent either.
+    lead('INQ-N3');
+    apply('_processed_events/inquiry_notify_INQ-N3', { status: 'sending', leaseUntil: Date.now() - 1 }, false);
+    fetchMock.mockReset();
+    await run(fns.onInquiryCreated, 'inquiries/INQ-N3', { inquiryId: 'INQ-N3' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.get('_processed_events/inquiry_notify_INQ-N3')?.status).toBe('uncertain');
+  });
+
+  it('#5 HTTP 200 with a business error code counts as failed and is retried', async () => {
+    process.env.NOTIFY_WEBHOOK_URL = 'https://hooks.example.test/robot';
+    lead('INQ-N4');
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{"errcode":45009,"errmsg":"api freq out of limit"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"errcode":0,"errmsg":"ok"}', { status: 200 }));
+    await expect(run(fns.onInquiryCreated, 'inquiries/INQ-N4', { inquiryId: 'INQ-N4' })).rejects.toThrow(/failed, will retry/);
+    expect(store.get('_processed_events/inquiry_notify_INQ-N4')?.status).toBe('failed');
+    await run(fns.onInquiryCreated, 'inquiries/INQ-N4', { inquiryId: 'INQ-N4' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store.get('_processed_events/inquiry_notify_INQ-N4')?.status).toBe('sent');
+    expect(fns.robotAccepted('{"code":0,"msg":"success"}')).toBe(true); // 飞书
+    expect(fns.robotAccepted('{"code":19021,"msg":"sign match fail"}')).toBe(false);
+    expect(fns.robotAccepted('{"errcode":310000,"errmsg":"keywords not in content"}')).toBe(false); // 钉钉
+    expect(fns.robotAccepted('ok')).toBe(true);
+  });
+
+  it('#8 repair restores cents lost to whole-dollar rounding, leaves larger gaps for a manual check', async () => {
+    // QA customer: two quotations of 40.25, total stored as 80.25 (one was added as 40).
+    apply('customers/CUST-QA', { id: 'CUST-QA', email: 'qa@example.com', inquiryCount: 1, totalQuotationUsd: 80.25 }, false);
+    lead('INQ-QA', { customerId: 'CUST-QA' });
+    quotation('PI-QA-1', 'INQ-QA', 40.25);
+    quotation('PI-QA-2', 'INQ-QA', 40.25);
+    apply('_processed_events/quotation_PI-QA-1', { customerId: 'CUST-QA' }, false);
+    apply('_processed_events/quotation_PI-QA-2', { status: 'credited', customerId: 'CUST-QA', amount: 40.25 }, false);
+    // Legacy customer whose total predates quotation tracking: far off, must not be touched.
+    apply('customers/CUST-OLD', { id: 'CUST-OLD', email: 'old@example.com', inquiryCount: 6, totalQuotationUsd: 128400 }, false);
+    lead('INQ-OLD', { customerId: 'CUST-OLD' });
+    quotation('PI-OLD', 'INQ-OLD', 500);
+    apply('_processed_events/quotation_PI-OLD', { status: 'credited', customerId: 'CUST-OLD', amount: 500 }, false);
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => void logs.push(a.join(' ')));
+    process.argv.push('--apply');
+    try {
+      await import(/* @vite-ignore */ '../scripts/repair-customer-links.mjs?run=' + Math.random());
+      await vi.waitFor(() => expect(logs.some(l => /total\(s\) to check by hand/.test(l))).toBe(true));
+    } finally {
+      process.argv.pop();
+    }
+    expect(store.get('customers/CUST-QA')!.totalQuotationUsd).toBe(80.5);
+    expect(store.get('customers/CUST-OLD')!.totalQuotationUsd).toBe(128400);
+    expect(logs.some(l => l.startsWith('[check] CUST-OLD'))).toBe(true);
   });
 });

@@ -14,10 +14,12 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { beforeUserCreated } from 'firebase-functions/v2/identity';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { onObjectFinalized } from 'firebase-functions/v2/storage';
 import { defineString } from 'firebase-functions/params';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
 import { getFirestore, FieldValue, DocumentReference, Timestamp } from 'firebase-admin/firestore';
 
 // Must match FUNCTIONS_REGION in src/config/appConfig.ts, and the Firestore database location
@@ -391,6 +393,54 @@ export const grantUploadAccess = onCall(async request => {
   return { uploadUntil };
 });
 
+/** Live check against the staff document (the same test as assertCallerIsSuperAdmin). */
+async function isActiveSuperAdmin(uid: string): Promise<boolean> {
+  if (!uid) return false;
+  const data = (await staffRef(uid).get()).data();
+  return !!data && data.role === 'super_admin' && (data.status === undefined || data.status === 'active');
+}
+
+// The grant above cannot be withdrawn before it expires (it travels inside the ID token). So the
+// check that takes effect IMMEDIATELY runs here, on the server, the moment a file is stored:
+// storage.rules make every upload carry `uploaderUid` (= the uploader's own uid), and a file whose
+// uploader is not an active super admin right now is deleted at once. Products cannot point at it
+// anyway (firestore.rules check the staff document live), and browsers cannot delete media at all:
+// deletions go through deleteProductMedia below, which checks the staff document as well.
+export const onProductMediaUploaded = onObjectFinalized({ retry: true }, async event => {
+  const name = event.data.name || '';
+  if (!name.startsWith('products/')) return;
+  const uploaderUid = String(event.data.metadata?.uploaderUid || '');
+  if (await isActiveSuperAdmin(uploaderUid)) return;
+  await getStorage().bucket(event.data.bucket).file(name).delete({ ignoreNotFound: true });
+  console.warn(`Removed ${name}: uploader ${uploaderUid || '(unknown)'} is not an active super admin.`);
+});
+
+/** gs path from a Firebase download URL (…/v0/b/{bucket}/o/{encoded path}?alt=media…), or null. */
+function storagePathFromUrl(url: string): string | null {
+  const m = /\/v0\/b\/[^/]+\/o\/([^?#]+)/.exec(String(url || ''));
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    return null;
+  }
+}
+
+export const deleteProductMedia = onCall(async request => {
+  await assertCallerIsSuperAdmin(request.auth);
+  const urls = Array.isArray(request.data?.urls) ? (request.data.urls as unknown[]).slice(0, 50) : [];
+  const bucket = getStorage().bucket();
+  let deleted = 0;
+  for (const url of urls) {
+    const objectPath = storagePathFromUrl(String(url));
+    // Product media only, never anything else in the bucket.
+    if (!objectPath || !/^products\/[A-Za-z0-9_-]+\/(images|videos)\/[^/]+$/.test(objectPath)) continue;
+    await bucket.file(objectPath).delete({ ignoreNotFound: true });
+    deleted++;
+  }
+  return { deleted };
+});
+
 // ---------------------------------------------------------------------------
 // 4. adminDeleteStaff
 //    Order matters: revoke Auth first, then delete the staff document, then release leads.
@@ -474,10 +524,37 @@ function customerIdForInquiry(data: Record<string, any>): string | null {
   return digits.length >= 6 ? `CUST-TEL-${digits}` : null;
 }
 
-/** Returns true when the webhook accepted the message (or no webhook is configured). */
-async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): Promise<boolean> {
+/**
+ * What happened to one webhook call:
+ *   'sent'      the robot accepted the message (HTTP 2xx and, for 企业微信 / 钉钉 / 飞书, business
+ *               code 0 in the JSON body — these answer HTTP 200 even when they refuse a message);
+ *   'failed'    certainly NOT delivered (refused with an error code / HTTP error, or the connection
+ *               could not be opened): safe to send again;
+ *   'uncertain' the request may have reached the robot but no answer came back (timeout, connection
+ *               dropped): sending again could post the message twice, so it is not retried.
+ */
+type NotifyOutcome = 'sent' | 'failed' | 'uncertain';
+
+/** Business result in a robot's JSON reply: 企业微信 / 钉钉 `errcode`, 飞书 `code` or `StatusCode`. */
+export function robotAccepted(body: string): boolean {
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(body);
+  } catch {
+    return true; // not JSON: HTTP status is all there is
+  }
+  for (const key of ['errcode', 'code', 'StatusCode']) {
+    if (key in json && Number(json[key]) !== 0) return false;
+  }
+  return true;
+}
+
+// Errors raised before any byte of the request left this server.
+const CONNECT_ERRORS = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH', 'UND_ERR_CONNECT_TIMEOUT', 'CERT_HAS_EXPIRED', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_INVALID_URL'];
+
+async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): Promise<NotifyOutcome> {
   const url = NOTIFY_WEBHOOK_URL.value();
-  if (!url) return true;
+  if (!url) return 'sent';
   const lines = [
     '【官网新询价】',
     `客户：${data.customerName || data.name || '-'}${data.company ? `（${data.company}）` : ''}`,
@@ -487,43 +564,93 @@ async function notifyNewInquiry(inquiryId: string, data: Record<string, any>): P
     data.message ? `留言：${String(data.message).slice(0, 300)}` : '',
     `编号：${inquiryId}`
   ].filter(Boolean);
+  let res: Response;
   try {
-    const res = await fetch(url, {
+    res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ msgtype: 'text', text: { content: lines.join('\n') } }),
       signal: AbortSignal.timeout(10_000)
     });
-    if (!res.ok) console.warn(`Inquiry notification HTTP ${res.status}`);
-    return res.ok;
   } catch (err) {
-    console.warn('Inquiry notification failed:', err);
-    return false;
+    const code = String((err as { cause?: { code?: string } })?.cause?.code || (err as { code?: string })?.code || '');
+    console.warn(`Inquiry ${inquiryId}: notification request failed (${code || (err as Error)?.name}):`, err);
+    // Could not connect at all -> nothing was sent. Anything else (timeout, reset) -> unknown.
+    return CONNECT_ERRORS.includes(code) ? 'failed' : 'uncertain';
   }
+  const body = await res.text().catch(() => '');
+  if (res.ok && robotAccepted(body)) return 'sent';
+  console.warn(`Inquiry ${inquiryId}: notification refused, HTTP ${res.status} ${body.slice(0, 200)}`);
+  return 'failed';
 }
 
 /** A failed event is redelivered (retry: true) only this long; after that it is logged and dropped. */
 const EVENT_RETRY_WINDOW_MS = 6 * 60 * 60 * 1000;
 const isTooOld = (eventTime: string) => Date.now() - Date.parse(eventTime) > EVENT_RETRY_WINDOW_MS;
+/** How long one delivery may hold the right to send before another may take over. */
+const NOTIFY_LEASE_MS = 60_000;
 
 const processedRef = (id: string) => adminDb.collection('_processed_events').doc(id);
 
 /**
- * Sends the new-inquiry notification at most once. The marker is written only AFTER the webhook
- * accepted the message; a failure throws, so the event is redelivered and the message sent then.
+ * Sends the new-inquiry notification at most once, also when events are redelivered in parallel.
+ *
+ * `_processed_events/inquiry_notify_{id}.status`:
+ *   (none) / 'failed'  -> take the lease (in a transaction, so only ONE delivery wins) and send;
+ *   'sending'          -> another delivery is sending: if its lease is still running, retry later;
+ *                         if it expired, that delivery died mid-way and may have sent: 'uncertain';
+ *   'sent' / 'uncertain' -> done, never send again.
+ * Only a CERTAIN failure is retried. A send whose outcome is unknown is not repeated (it would risk
+ * a duplicate message); it is recorded as 'uncertain' and logged as an error for follow-up.
  */
 async function notifyOnce(inquiryId: string, data: Record<string, any>, eventTime: string): Promise<void> {
   const ref = processedRef(`inquiry_notify_${inquiryId}`);
-  if ((await ref.get()).exists) return;
-  if (await notifyNewInquiry(inquiryId, data)) {
-    await ref.set({ processedAt: new Date().toISOString() });
+  const leaseId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const claim = await adminDb.runTransaction(async tx => {
+    const snap = await tx.get(ref);
+    const status = snap.exists ? String(snap.get('status') || 'sent') : '';
+    if (status === 'sent' || status === 'uncertain') return 'done' as const;
+    if (status === 'sending') {
+      if (Number(snap.get('leaseUntil') || 0) > Date.now()) return 'busy' as const;
+      tx.set(ref, { status: 'uncertain', reason: 'previous delivery stopped while sending', updatedAt: new Date().toISOString() }, { merge: true });
+      return 'abandoned' as const;
+    }
+    tx.set(ref, { status: 'sending', leaseId, leaseUntil: Date.now() + NOTIFY_LEASE_MS, attempts: Number(snap.get('attempts') || 0) + 1, updatedAt: new Date().toISOString() }, { merge: true });
+    return 'mine' as const;
+  });
+  if (claim === 'done') return;
+  if (claim === 'abandoned') {
+    console.error(`Inquiry ${inquiryId}: an earlier delivery stopped while sending; not resending to avoid a duplicate.`);
     return;
   }
-  if (isTooOld(eventTime)) {
-    console.error(`Inquiry ${inquiryId}: notification still failing after ${EVENT_RETRY_WINDOW_MS / 3600000} h, giving up.`);
+  if (claim === 'busy') throw new Error(`Inquiry ${inquiryId}: notification being sent by another delivery, will check again`);
+
+  const outcome = await notifyNewInquiry(inquiryId, data);
+  // Record the result; retried a few times because losing it after a successful send would
+  // otherwise look like an abandoned send (-> 'uncertain', still no duplicate).
+  for (let i = 0; ; i++) {
+    try {
+      await ref.set({ status: outcome, leaseUntil: 0, updatedAt: new Date().toISOString() }, { merge: true });
+      break;
+    } catch (err) {
+      if (i >= 2) {
+        console.error(`Inquiry ${inquiryId}: could not record notification result "${outcome}":`, err);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 500 * (i + 1)));
+    }
+  }
+  if (outcome === 'uncertain') {
+    console.error(`Inquiry ${inquiryId}: notification outcome unknown (no reply); not resending to avoid a duplicate.`);
     return;
   }
-  throw new Error(`Inquiry ${inquiryId}: notification failed, will retry`);
+  if (outcome === 'failed') {
+    if (isTooOld(eventTime)) {
+      console.error(`Inquiry ${inquiryId}: notification still failing after ${EVENT_RETRY_WINDOW_MS / 3600000} h, giving up.`);
+      return;
+    }
+    throw new Error(`Inquiry ${inquiryId}: notification failed, will retry`);
+  }
 }
 
 export const onInquiryCreated = onDocumentCreated(

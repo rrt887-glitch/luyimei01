@@ -10,12 +10,16 @@ service firebase.storage {
     // before every upload and renews it during long ones. Claims and the request time are the only
     // inputs, both documented and reliable in Storage rules (no cross-service lookup of the named
     // Firestore database, no reliance on JWT time fields). A suspended admin can no longer obtain
-    // a grant, so any token they still hold stops working within 15 minutes of the last grant.
+    // a grant; a file they still manage to upload with an old grant is removed by the server at once.
     function canWriteMedia() {
       return request.auth != null &&
         request.auth.token.get('role', '') == 'super_admin' &&
         request.auth.token.get('staff', false) == true &&
-        request.auth.token.get('uploadUntil', 0) > request.time.toMillis();
+        request.auth.token.get('uploadUntil', 0) > request.time.toMillis() &&
+        // Every file names its uploader, so the onProductMediaUploaded function can check that
+        // person against the live staff record the moment the file is stored (and remove it).
+        request.resource.metadata != null &&
+        request.resource.metadata.get('uploaderUid', '') == request.auth.uid;
     }
 
     // Product Images: public read, super_admin write, max 10MB, image/* content type only
@@ -24,7 +28,8 @@ service firebase.storage {
       allow create, update: if canWriteMedia() &&
         request.resource.size <= 10 * 1024 * 1024 &&
         request.resource.contentType.matches('image/.*');
-      allow delete: if canWriteMedia();
+      // Deleting goes through the deleteProductMedia Cloud Function (live staff check).
+      allow delete: if false;
     }
 
     // Product Videos: public read, super_admin write, max 150MB, video/* content type only
@@ -33,7 +38,7 @@ service firebase.storage {
       allow create, update: if canWriteMedia() &&
         request.resource.size <= 150 * 1024 * 1024 &&
         request.resource.contentType.matches('video/.*');
-      allow delete: if canWriteMedia();
+      allow delete: if false;
     }
 
     // Default deny all other paths

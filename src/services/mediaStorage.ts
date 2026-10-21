@@ -97,7 +97,12 @@ async function uploadWithProgress(
   await ensureUploadGrant();
   const [{ ref, uploadBytesResumable, getDownloadURL }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
   const storageRef: StorageReference = ref(storage, path);
-  const task = uploadBytesResumable(storageRef, data, { contentType, cacheControl: 'public, max-age=31536000' });
+  // uploaderUid is required by storage.rules; the server checks it against the live staff record.
+  const task = uploadBytesResumable(storageRef, data, {
+    contentType,
+    cacheControl: 'public, max-age=31536000',
+    customMetadata: { uploaderUid: auth.currentUser?.uid || '' }
+  });
 
   return new Promise<string>((resolve, reject) => {
     let stalled: ReturnType<typeof setTimeout>;
@@ -237,16 +242,13 @@ export async function uploadProductVideo(
 export async function deleteUploadedMedia(urls: string[]): Promise<number> {
   const targets = urls.filter(url => url && url.includes('firebasestorage.googleapis.com'));
   if (!targets.length) return 0;
-  await ensureUploadGrant().catch(() => undefined);
-  const [{ ref, deleteObject }, storage] = await Promise.all([import('firebase/storage'), getStorageService()]);
-  let deleted = 0;
-  for (const url of targets) {
-    try {
-      await deleteObject(ref(storage, url));
-      deleted++;
-    } catch (err) {
-      console.warn('Unused media cleanup warning:', err);
-    }
+  // Browsers may not delete media (storage.rules); the Cloud Function checks the staff record live.
+  try {
+    const { adminFunctions } = await import('./admin/adminFunctions');
+    const { deleted } = await adminFunctions.deleteProductMedia(targets);
+    return deleted;
+  } catch (err) {
+    console.warn('Unused media cleanup warning:', err);
+    return 0;
   }
-  return deleted;
 }

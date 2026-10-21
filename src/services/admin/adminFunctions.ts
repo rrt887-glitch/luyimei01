@@ -78,6 +78,10 @@ export const adminFunctions = {
   grantUploadAccess() {
     return callAdminFunction<Record<string, never>, { uploadUntil: number }>('grantUploadAccess', {});
   },
+  /** Removes product images / videos (only paths under products/), checked server-side. */
+  deleteProductMedia(urls: string[]) {
+    return callAdminFunction<{ urls: string[] }, { deleted: number }>('deleteProductMedia', { urls });
+  },
 
   createStaff(data: CreateStaffRequest) {
     return callAdminFunction<CreateStaffRequest, { staff: StaffAccount }>('adminCreateStaff', data);
