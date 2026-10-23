@@ -271,12 +271,13 @@ class AdminApiService {
   }
 
   async batchDeleteProducts(ids: string[]): Promise<number> {
-    this.assertSuperAdminForProductWrite();
+    const actor = this.assertSuperAdminForProductWrite();
     let count = 0;
     for (const id of ids) {
       const ok = await this.deleteProduct(id);
       if (ok) count++;
     }
+    if (count > 0) this.auditService.logAction(actor, '批量删除商品', `共 ${count} 款商品`, `选中 ${ids.length} 款，已删除 ${count} 款`);
     return count;
   }
 
@@ -646,8 +647,19 @@ class AdminApiService {
     return this.auditService.loadOlder(beforeIso, pageSize);
   }
 
-  addAuditLog(action: string, target: string, details: string): void {
-    this.auditService.logAction(this.staffService.getCurrentStaff(), action, target, details);
+  addAuditLog(action: string, target: string, details: string): Promise<void> {
+    return this.auditService.logAction(this.staffService.getCurrentStaff(), action, target, details);
+  }
+
+  /** Logs a manual sign-out; waits (at most 3 s) so the entry is written while still signed in. */
+  async logSignOut(): Promise<void> {
+    const staff = this.staffService.getCurrentStaff();
+    if (staff) {
+      await Promise.race([
+        this.auditService.logAction(staff, '退出中台', staff.name, `角色: ${staff.role === 'super_admin' ? '超级管理员' : '销售代表'}`),
+        new Promise(resolve => setTimeout(resolve, 3000))
+      ]);
+    }
   }
 }
 

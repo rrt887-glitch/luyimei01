@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { adminApi } from '../../../services/adminApi';
 import { UploadCancelledError, UploadRejectedError, describeUploadError, uploadProductImage, uploadProductVideo } from '../../../services/mediaStorage';
 
 export interface PhotoUpload {
@@ -56,6 +57,7 @@ export function useMediaUploads(productId: string, onPhotoUploaded: (url: string
       uploadProductImage(callbacks.current.productId, file, p => patchPhoto(id, { percent: p.percent }), ctrl.signal)
         .then(url => {
           callbacks.current.onPhotoUploaded(url);
+          void adminApi.addAuditLog('上传商品图片', file.name, `商品 ID: ${callbacks.current.productId}｜${(file.size / 1024).toFixed(0)} KB`);
           files.current.delete(id);
           setPhotos(list => {
             const done = list.find(p => p.id === id);
@@ -125,6 +127,7 @@ export function useMediaUploads(productId: string, onPhotoUploaded: (url: string
     )
       .then(url => {
         callbacks.current.onVideoUploaded(url);
+        void adminApi.addAuditLog('上传商品视频', file.name, `商品 ID: ${callbacks.current.productId}｜${(file.size / 1048576).toFixed(1)} MB`);
         videoFile.current = null;
         setVideo(null);
       })

@@ -149,10 +149,10 @@ export class AuditLogDomainService {
     action: string,
     target: string,
     details: string
-  ): void {
+  ): Promise<void> {
     // Never attribute buyer or unauthenticated actions to Super Admin
     if (!actor || !actor.id || !auth.currentUser) {
-      return;
+      return Promise.resolve();
     }
 
     const autoId = doc(collection(db, 'audit_logs')).id;
@@ -171,7 +171,9 @@ export class AuditLogDomainService {
     this.saveReadOnlyAuditCache();
 
     const payload = sanitizeAuditLogForFirestore(newLog);
-    withTimeout(setDoc(doc(db, 'audit_logs', newLog.id), payload), ADMIN_OPERATION_TIMEOUT_MS).catch(
+    // Callers do not wait (the entry is shown at once); the logout path waits so the entry is
+    // written before the session ends.
+    return withTimeout(setDoc(doc(db, 'audit_logs', newLog.id), payload), ADMIN_OPERATION_TIMEOUT_MS).catch(
       err => {
         console.warn('Audit log cloud write failed:', err);
       }

@@ -233,7 +233,10 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
   const clearLeadForModal = useCallback(() => setLeadIdForModal(null), []);
   const clearLeadForQuotation = useCallback(() => setLeadIdForQuotation(null), []);
 
-  const logout = () => endSession('已安全退出管理中台。');
+  const logout = () => {
+    if (endedRef.current) return;
+    void adminApi.logSignOut().finally(() => endSession('已安全退出管理中台。'));
+  };
 
   return (
     <AdminLayout

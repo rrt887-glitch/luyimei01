@@ -55,15 +55,21 @@ function docRef(path: string): any {
     delete: async () => void store.delete(path)
   };
 }
-function collectionRef(name: string, filters: [string, unknown][] = []): any {
+type Filter = [string, string, unknown];
+const matches = (actual: any, op: string, v: any) => (op === '<' ? actual < v : actual === v);
+function collectionRef(name: string, filters: Filter[] = [], order?: string, max?: number): any {
   return {
     doc: (id: string) => docRef(`${name}/${id}`),
-    where: (field: string, _op: string, value: unknown) => collectionRef(name, [...filters, [field, value]]),
+    where: (field: string, op: string, value: unknown) => collectionRef(name, [...filters, [field, op, value]], order, max),
+    orderBy: (field: string) => collectionRef(name, filters, field, max),
+    limit: (n: number) => collectionRef(name, filters, order, n),
     get: async () => {
-      const docs = [...store.keys()]
+      let docs = [...store.keys()]
         .filter(k => k.startsWith(name + '/') && k.split('/').length === 2)
         .map(snapOf)
-        .filter(s => filters.every(([f, v]) => s.get(f) === v));
+        .filter(s => filters.every(([f, op, v]) => matches(s.get(f), op, v)));
+      if (order) docs.sort((a, b) => (a.get(order) < b.get(order) ? -1 : 1));
+      if (max !== undefined) docs = docs.slice(0, max);
       return { docs, empty: docs.length === 0, size: docs.length };
     }
   };
@@ -82,7 +88,10 @@ const fakeDb = {
     writes.forEach(w => w());
     return result;
   },
-  batch: () => ({ set() {}, update() {}, delete() {}, commit: async () => {} })
+  batch: () => {
+    const deletes: string[] = [];
+    return { set() {}, update() {}, delete: (ref: any) => void deletes.push(ref.path), commit: async () => deletes.forEach(p => store.delete(p)) };
+  }
 };
 
 // functions/ has its own node_modules: mock the copies that functions/src/index.ts actually loads.
@@ -394,5 +403,20 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     apply('staff/third', { id: 'third', role: 'super_admin', status: 'active' }, false);
     await call(fns.adminUpdateStaffStatus, 'third', { staffIds: ['boss'], role: 'sales_rep' });
     expect(store.has('upload_grants/boss')).toBe(false);
+  });
+  it('audit log retention: entries older than 30 days are deleted, newer ones kept', async () => {
+    const nowMs = Date.parse('2026-10-23T03:17:00.000Z');
+    const cutoff = fns.auditLogCutoffIso(new Date(nowMs));
+    expect(cutoff).toBe('2026-09-23T03:17:00.000Z');
+    const day = 24 * 60 * 60 * 1000;
+    for (let i = 0; i < 950; i++) {
+      apply(`audit_logs/OLD-${i}`, { id: `OLD-${i}`, timestamp: new Date(nowMs - 31 * day - i * 1000).toISOString() }, false);
+    }
+    apply('audit_logs/EDGE', { id: 'EDGE', timestamp: cutoff }, false);
+    apply('audit_logs/NEW', { id: 'NEW', timestamp: new Date(nowMs - day).toISOString() }, false);
+    const deleted = await fns.purgeAuditLogsBefore(cutoff);
+    expect(deleted).toBe(950);
+    const left = [...store.keys()].filter(k => k.startsWith('audit_logs/')).sort();
+    expect(left).toEqual(['audit_logs/EDGE', 'audit_logs/NEW']);
   });
 });

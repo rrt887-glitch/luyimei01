@@ -111,7 +111,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs }) => {
     <div className="adm-page">
       <PageHeader
         title="操作日志"
-        description="谁在什么时候改了什么、下载了什么。日志只能追加，任何人（包括超级管理员）都不能修改或删除。"
+        description="记录每个账号的登录、退出、新增、修改、删除、认领、导出、打印等操作。日志只能追加，任何人（包括超级管理员）都不能修改或删除；系统只保留最近 30 天，更早的记录每天凌晨自动清除。"
         actions={
           <button type="button" onClick={exportLogs} disabled={filtered.length === 0} className="btn btn-sm btn-outline">
             <Download className="w-4 h-4" />

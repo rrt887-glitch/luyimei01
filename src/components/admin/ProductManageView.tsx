@@ -114,7 +114,9 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     const unused = sessionUploadsRef.current.filter(url => !keepSet.has(url));
     sessionUploadsRef.current = [];
     if (unused.length > 0) {
-      void deleteUploadedMedia(unused);
+      void deleteUploadedMedia(unused).then(n => {
+        if (n > 0) void adminApi.addAuditLog('清理未使用的商品图片/视频', editingProduct?.customName || editingProduct?.model || '新商品', `删除 ${n} 个上传后未保存的文件`);
+      });
     }
   };
 
@@ -243,7 +245,10 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
   };
 
   const today = () => new Date().toISOString().slice(0, 10);
-  const handleDownloadProductTemplate = () => downloadBlob(buildXlsx(buildProductTemplateSheets(categories)), 'LYM_products_upload_template.xlsx');
+  const handleDownloadProductTemplate = () => {
+    downloadBlob(buildXlsx(buildProductTemplateSheets(categories)), 'LYM_products_upload_template.xlsx');
+    void adminApi.addAuditLog('下载导入模板', 'LYM_products_upload_template.xlsx', '下载商品批量上架 Excel 模板');
+  };
   const handleExportProducts = () => {
     const list = products.filter(p => !p.isDeleted);
     downloadBlob(
@@ -258,6 +263,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
       ),
       `LYM_products_${today()}.xlsx`
     );
+    void adminApi.addAuditLog('导出商品', `LYM_products_${today()}.xlsx`, `导出 ${list.length} 款商品`);
     onShowToast(`已导出 ${list.length} 款商品`);
   };
   const handleImportProducts = async (rows: ParsedProductRow[], fileName: string, onProgress: (done: number) => void) => {

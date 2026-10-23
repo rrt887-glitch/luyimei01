@@ -627,9 +627,15 @@ export class LeadsCrmDomainService {
     lead.updatedAt = nowStr;
     this.saveReadOnlyLeadsCache();
 
+    const selfId = currentStaff?.id || auth.currentUser?.uid;
+    const action = !staff
+      ? '释放线索回公海'
+      : staff.id === selfId && previousOwner === '公海'
+        ? '认领公海线索'
+        : '指派线索负责人';
     this.auditLogger.logAction(
       currentStaff,
-      '指派线索负责人',
+      action,
       `${lead.customerName} (${lead.id})`,
       `负责人：${previousOwner} → ${staff ? staff.name : '公海'}`
     );

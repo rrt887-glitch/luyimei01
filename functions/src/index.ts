@@ -15,6 +15,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { beforeUserCreated } from 'firebase-functions/v2/identity';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineString } from 'firebase-functions/params';
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
@@ -1108,3 +1109,47 @@ export const registerBuyer = onCall(async request => {
 
   return { uid };
 });
+
+// ---------------------------------------------------------------------------
+// 8. Audit log retention
+//    The console writes one `audit_logs` entry per staff action (create-only, never edited).
+//    Only the last AUDIT_LOG_RETENTION_DAYS days are kept: every night the older entries are
+//    deleted in batches. Entries are compared by their ISO `timestamp`; a run stops after
+//    AUDIT_PURGE_MAX_BATCHES batches and the next night continues where it stopped.
+// ---------------------------------------------------------------------------
+export const AUDIT_LOG_RETENTION_DAYS = 30;
+const AUDIT_PURGE_MAX_BATCHES = 50;
+
+/** ISO time before which audit entries are deleted. */
+export function auditLogCutoffIso(now: Date = new Date(), days = AUDIT_LOG_RETENTION_DAYS): string {
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Deletes audit entries older than `cutoffIso`; returns how many were deleted. */
+export async function purgeAuditLogsBefore(cutoffIso: string): Promise<number> {
+  let deleted = 0;
+  for (let i = 0; i < AUDIT_PURGE_MAX_BATCHES; i++) {
+    const snap = await adminDb
+      .collection('audit_logs')
+      .where('timestamp', '<', cutoffIso)
+      .orderBy('timestamp')
+      .limit(FIRESTORE_BATCH_LIMIT)
+      .get();
+    if (snap.empty) break;
+    const batch = adminDb.batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    deleted += snap.size;
+    if (snap.size < FIRESTORE_BATCH_LIMIT) break;
+  }
+  return deleted;
+}
+
+export const purgeOldAuditLogs = onSchedule(
+  { schedule: '17 3 * * *', timeZone: 'Asia/Shanghai', retryCount: 1 },
+  async () => {
+    const cutoff = auditLogCutoffIso();
+    const deleted = await purgeAuditLogsBefore(cutoff);
+    console.log(`purgeOldAuditLogs: deleted ${deleted} entries older than ${cutoff}`);
+  }
+);
