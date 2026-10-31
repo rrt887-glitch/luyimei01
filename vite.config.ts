@@ -4,12 +4,33 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
 import { SECURITY_HEADERS } from './src/config/securityHeaders.ts';
+import { handleApiGatewayRequest } from './server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function lymApiGatewayPlugin() {
+  const middleware = (req: any, res: any, next: () => void) => {
+    const url = String(req.url || '');
+    if (url === '/__api' || url.startsWith('/__api/') || url.startsWith('/__api?')) {
+      void handleApiGatewayRequest(req, res);
+      return;
+    }
+    next();
+  };
+  return {
+    name: 'lym-api-gateway',
+    configureServer(server: any) {
+      server.middlewares.use(middleware);
+    },
+    configurePreviewServer(server: any) {
+      server.middlewares.use(middleware);
+    }
+  };
+}
+
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [lymApiGatewayPlugin(), react(), tailwindcss()],
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: {

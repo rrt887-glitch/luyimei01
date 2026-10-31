@@ -218,6 +218,19 @@ export const SITE_CONTACT_CONFIG_ALLOWED_KEYS = [
 
 export function sanitizeProductForFirestore(product: Record<string, any>): Record<string, any> {
   const cleaned = pickAllowedFields(product, PRODUCT_ALLOWED_KEYS);
+  const toCanonical = (u: string) =>
+    u.startsWith('/__api/storage/')
+      ? `https://firebasestorage.googleapis.com${u.slice('/__api/storage'.length)}`
+      : u;
+  if (Array.isArray(cleaned.images)) {
+    cleaned.images = cleaned.images.map((img: unknown) => (typeof img === 'string' ? toCanonical(img) : img));
+  }
+  if (typeof cleaned.videoUrl === 'string') {
+    cleaned.videoUrl = toCanonical(cleaned.videoUrl);
+  }
+  if (typeof cleaned.videoThumbnail === 'string') {
+    cleaned.videoThumbnail = toCanonical(cleaned.videoThumbnail);
+  }
   if (typeof cleaned.customName === 'string' && cleaned.customName.trim() === '') {
     delete cleaned.customName;
   }

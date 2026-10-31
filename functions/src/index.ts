@@ -11,7 +11,7 @@
  *   sync only as a convenience for clients and are never trusted for authorization.
  */
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { beforeUserCreated } from 'firebase-functions/v2/identity';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onObjectFinalized } from 'firebase-functions/v2/storage';
@@ -1153,3 +1153,181 @@ export const purgeOldAuditLogs = onSchedule(
     console.log(`purgeOldAuditLogs: deleted ${deleted} entries older than ${cutoff}`);
   }
 );
+
+// ---------------------------------------------------------------------------
+// 9. Same-Origin Cloud Gateway (`/__api/**` via Firebase Hosting rewrites)
+//    Enables browsers on domestic China mobile/broadband networks (without VPN)
+//    to load real-time products/configs (`/bootstrap`) and access Firebase Auth,
+//    Firestore, Storage, and Callable Functions over the custom domain (`lymeik.com`).
+// ---------------------------------------------------------------------------
+const FORWARDED_REQ_HEADERS = [
+  'content-type',
+  'authorization',
+  'accept',
+  'accept-language',
+  'range',
+  'x-forwarded-for',
+  'x-http-session-id',
+  'x-firebase-locale',
+  'x-firebase-gmpid',
+  'x-firebase-client',
+  'x-firebase-appcheck'
+];
+
+function shouldForwardReqHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (FORWARDED_REQ_HEADERS.includes(lower)) return true;
+  return lower.startsWith('x-goog-') || lower.startsWith('x-firebase-') || lower.startsWith('x-client-');
+}
+
+function shouldForwardResHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (
+    lower === 'content-type' ||
+    lower === 'cache-control' ||
+    lower === 'etag' ||
+    lower === 'last-modified' ||
+    lower === 'x-http-session-id' ||
+    lower === 'x-guploader-uploadid' ||
+    lower === 'content-range' ||
+    lower === 'accept-ranges' ||
+    lower === 'location'
+  ) {
+    return true;
+  }
+  return lower.startsWith('x-goog-') || lower.startsWith('x-firebase-');
+}
+
+function projectIdFromEnv(): string {
+  if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT;
+  if (process.env.FIREBASE_CONFIG) {
+    try {
+      const cfg = JSON.parse(process.env.FIREBASE_CONFIG);
+      if (cfg?.projectId) return String(cfg.projectId);
+    } catch {
+      // ignore
+    }
+  }
+  return 'gen-lang-client-0359861747';
+}
+
+export const apiGateway = onRequest({ cors: true }, async (req, res) => {
+  res.setHeader('x-lym-gateway', '1');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  const parsedUrl = new URL(req.url || '/', 'http://localhost');
+  const subPath = parsedUrl.pathname.replace(/^\/__api(?=\/|$)/, '') || '/';
+
+  // 1. Fast same-origin bootstrap snapshot for products, categories, and site contact config
+  if (subPath === '/bootstrap' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const [productsSnap, categoriesSnap, contactSnap] = await Promise.all([
+        adminDb.collection('products').get(),
+        adminDb.collection('site_config').doc('categories').get(),
+        adminDb.collection('site_config').doc('contact').get()
+      ]);
+
+      const products = productsSnap.docs.map(d => ({ ...d.data(), id: d.id }));
+      const categories = categoriesSnap.exists ? (categoriesSnap.data()?.items ?? null) : null;
+      const contact = contactSnap.exists ? (contactSnap.data() ?? null) : null;
+
+      res.setHeader('Cache-Control', 'public, max-age=5, s-maxage=10, stale-while-revalidate=30');
+      res.status(200).json({
+        ok: true,
+        products,
+        categories,
+        contact,
+        ts: new Date().toISOString()
+      });
+      return;
+    } catch (err: any) {
+      console.error('apiGateway /bootstrap error:', err);
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(500).json({ ok: false, error: 'bootstrap_failed' });
+      return;
+    }
+  }
+
+  // 2. Reverse proxy routes for Auth, Token, Firestore, Storage, and Callable Functions
+  const projectId = projectIdFromEnv();
+  let upstreamOrigin = '';
+  let upstreamPath = '';
+
+  if (subPath.startsWith('/auth/')) {
+    upstreamOrigin = 'https://identitytoolkit.googleapis.com';
+    upstreamPath = subPath.slice('/auth'.length);
+  } else if (subPath.startsWith('/token/')) {
+    upstreamOrigin = 'https://securetoken.googleapis.com';
+    upstreamPath = subPath.slice('/token'.length);
+  } else if (subPath.startsWith('/firestore/')) {
+    upstreamOrigin = 'https://firestore.googleapis.com';
+    upstreamPath = subPath.slice('/firestore'.length);
+    if (upstreamPath.endsWith('/Listen/channel') || upstreamPath.endsWith('/Write/channel')) {
+      if (parsedUrl.searchParams.get('CI') === '0' || !parsedUrl.searchParams.has('CI')) {
+        parsedUrl.searchParams.set('CI', '1');
+      }
+    }
+  } else if (subPath.startsWith('/storage/')) {
+    upstreamOrigin = 'https://firebasestorage.googleapis.com';
+    upstreamPath = subPath.slice('/storage'.length);
+  } else if (subPath.startsWith('/functions/') && projectId) {
+    upstreamOrigin = `https://${FUNCTIONS_REGION}-${projectId}.cloudfunctions.net`;
+    upstreamPath = subPath.slice('/functions'.length);
+  } else {
+    res.status(404).json({ ok: false, error: 'not_found' });
+    return;
+  }
+
+  const targetUrl = `${upstreamOrigin}${upstreamPath}${parsedUrl.search}`;
+  const forwardHeaders: Record<string, string> = {};
+  for (const [key, val] of Object.entries(req.headers)) {
+    if (!val || !shouldForwardReqHeader(key)) continue;
+    forwardHeaders[key] = Array.isArray(val) ? val.join(', ') : String(val);
+  }
+
+  const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
+  let body: BodyInit | undefined;
+  if (hasBody) {
+    if (req.rawBody && req.rawBody.length > 0) {
+      body = new Uint8Array(req.rawBody);
+    } else if (req.body !== undefined && req.body !== null) {
+      body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
+  }
+
+  try {
+    const upstreamRes = await fetch(targetUrl, {
+      method: req.method,
+      headers: forwardHeaders,
+      body
+    });
+
+    res.status(upstreamRes.status);
+    upstreamRes.headers.forEach((value, key) => {
+      if (!shouldForwardResHeader(key)) return;
+      if (
+        (key.toLowerCase() === 'location' || key.toLowerCase() === 'x-goog-upload-url') &&
+        value.startsWith('https://firebasestorage.googleapis.com/')
+      ) {
+        res.setHeader(key, `/__api/storage/${value.slice('https://firebasestorage.googleapis.com/'.length)}`);
+      } else {
+        res.setHeader(key, value);
+      }
+    });
+
+    if (!res.getHeader('Cache-Control') && !subPath.startsWith('/storage/')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+
+    const buf = Buffer.from(await upstreamRes.arrayBuffer());
+    res.end(buf);
+  } catch (err: any) {
+    console.error(`apiGateway proxy error (${subPath}):`, err);
+    res.status(502).json({ ok: false, error: 'bad_gateway' });
+  }
+});
+

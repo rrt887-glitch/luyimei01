@@ -9,6 +9,13 @@
     "cleanUrls": true,
     "rewrites": [
       {
+        "source": "/__api/**",
+        "function": {
+          "functionId": "apiGateway",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

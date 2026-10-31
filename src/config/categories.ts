@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { fetchBootstrapSnapshot } from '../services/networkProxy';
 import { SupportedLanguage } from '../types';
 import { sanitizeCategoryConfigForFirestore } from '../utils/firestoreSanitizer';
 
@@ -103,10 +104,21 @@ function publish(list: ProductCategoryDef[]) {
 function ensureSubscribed() {
   if (subscribed) return;
   subscribed = true;
+  let receivedRealtime = false;
+
+  void fetchBootstrapSnapshot().then(snap => {
+    if (receivedRealtime || !snap) return;
+    if (snap.categories !== undefined) {
+      const list = snap.categories ? cleanList(snap.categories) : null;
+      publish(list ?? DEFAULT_CATEGORIES);
+    }
+  });
+
   try {
     onSnapshot(
       doc(db, 'site_config', 'categories'),
       snap => {
+        receivedRealtime = true;
         const list = snap.exists() ? cleanList(snap.data()?.items) : null;
         publish(list ?? DEFAULT_CATEGORIES);
       },

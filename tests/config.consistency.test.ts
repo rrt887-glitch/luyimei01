@@ -188,3 +188,73 @@ describe('package-lock.json installs on every platform', () => {
   });
 });
 
+describe('Same-origin Cloud Gateway (/__api/**) for domestic China network access without VPN', () => {
+  it('firebase.json routes /__api/** to apiGateway in FUNCTIONS_REGION before the SPA fallback', () => {
+    const firebaseJson = JSON.parse(read('firebase.json'));
+    const rewrites = firebaseJson.hosting?.rewrites as Array<{
+      source: string;
+      function?: { functionId: string; region: string };
+      destination?: string;
+    }>;
+    expect(Array.isArray(rewrites)).toBe(true);
+    const apiIdx = rewrites.findIndex(r => r.source === '/__api/**');
+    const spaIdx = rewrites.findIndex(r => r.source === '**');
+    expect(apiIdx).toBeGreaterThanOrEqual(0);
+    expect(spaIdx).toBeGreaterThan(apiIdx);
+    expect(rewrites[apiIdx].function?.functionId).toBe('apiGateway');
+    expect(rewrites[apiIdx].function?.region).toBe(FUNCTIONS_REGION);
+    expect(read('functions/src/index.ts')).toContain('export const apiGateway = onRequest');
+  });
+
+  it('rewriteGoogleApiUrl maps Auth, Token, Firestore (CI=1), Storage, and Functions to /__api/*', async () => {
+    const { rewriteGoogleApiUrl, toCanonicalStorageUrl } = await import('../src/services/networkProxy');
+    expect(rewriteGoogleApiUrl('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=abc')).toBe(
+      '/__api/auth/v1/accounts:signInWithPassword?key=abc'
+    );
+    expect(rewriteGoogleApiUrl('https://securetoken.googleapis.com/v1/token?key=abc')).toBe(
+      '/__api/token/v1/token?key=abc'
+    );
+    expect(
+      rewriteGoogleApiUrl('https://firestore.googleapis.com/google.firestore.v1.Firestore/Listen/channel?VER=8&CI=0')
+    ).toBe('/__api/firestore/google.firestore.v1.Firestore/Listen/channel?VER=8&CI=1');
+    expect(rewriteGoogleApiUrl('https://firebasestorage.googleapis.com/v0/b/bucket/o/img.webp?alt=media')).toBe(
+      '/__api/storage/v0/b/bucket/o/img.webp?alt=media'
+    );
+    expect(
+      rewriteGoogleApiUrl('https://us-central1-gen-lang-client-0359861747.cloudfunctions.net/getSignupCaptcha')
+    ).toBe('/__api/functions/getSignupCaptcha');
+    expect(toCanonicalStorageUrl('/__api/storage/v0/b/bucket/o/img.webp?alt=media')).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/bucket/o/img.webp?alt=media'
+    );
+  });
+
+  it('safelyInstallWindowFetch handles getter-only and locked window.fetch without throwing', async () => {
+    const { safelyInstallWindowFetch } = await import('../src/services/networkProxy');
+    const origFetch = (() => Promise.resolve(new Response('orig'))) as unknown as typeof fetch;
+    const nextFetch = (() => Promise.resolve(new Response('patched'))) as unknown as typeof fetch;
+
+    // 1. Getter-only configurable property (like AI Studio preview window)
+    const getterOnlyWin: Record<string, any> = {};
+    Object.defineProperty(getterOnlyWin, 'fetch', {
+      get: () => origFetch,
+      configurable: true
+    });
+    expect(() => {
+      getterOnlyWin.fetch = nextFetch;
+    }).toThrow(TypeError);
+    expect(safelyInstallWindowFetch(getterOnlyWin, nextFetch)).toBe(true);
+    expect(getterOnlyWin.fetch).toBe(nextFetch);
+
+    // 2. Non-configurable getter-only property (strictly locked host)
+    const lockedWin: Record<string, any> = {};
+    Object.defineProperty(lockedWin, 'fetch', {
+      get: () => origFetch,
+      configurable: false
+    });
+    expect(() => safelyInstallWindowFetch(lockedWin, nextFetch)).not.toThrow();
+    expect(safelyInstallWindowFetch(lockedWin, nextFetch)).toBe(false);
+    expect(lockedWin.fetch).toBe(origFetch);
+  });
+});
+
+

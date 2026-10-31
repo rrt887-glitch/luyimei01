@@ -8,6 +8,22 @@
 
 对官网、买家账户、员工中台全部功能做了一轮自动化测试（共 34 组用例，详见测试报告），修复了以下问题：
 
+## v15.16 — 国内手机免 VPN 访问一致化与管理后台同源登录网关
+
+**上线需要（按顺序）：**
+1. 在 Firebase 控制台 → Authentication → 设置 →「已获授权的网域」中确认已添加 `lymeik.com` 和 `www.lymeik.com`。
+2. 构建并部署云函数与 Hosting：
+   ```bash
+   npm run build && npx firebase-tools deploy --only functions,hosting --project gen-lang-client-0359861747
+   ```
+3. 如首次部署 `apiGateway` 后访问 `https://lymeik.com/__api/bootstrap` 返回 `403 Forbidden`，请在 Cloud Shell 执行一次公开调用授权：
+   ```bash
+   gcloud run services add-iam-policy-binding apigateway --region=us-central1 --member=allUsers --role=roles/run.invoker --project=gen-lang-client-0359861747
+   ```
+
+- **解决国内手机与电脑显示内容不一致**：新增同源云函数网关 `apiGateway`（通过 Firebase Hosting `/__api/**` 重写转发）及 `GET /__api/bootstrap` 实时快照接口。国内手机无需开启 VPN，打开 `lymeik.com` 时直接走同源请求秒级拉取云端最新商品目录、分类和企业联系方式，不再因国内网络无法直连 `firestore.googleapis.com` 而降级显示代码内置的 4 款初始默认数据。
+- **解决国内手机无法登录管理后台**：前端自动将发往 `identitytoolkit.googleapis.com`、`securetoken.googleapis.com`、`firestore.googleapis.com`、`firebasestorage.googleapis.com` 与 `*.cloudfunctions.net` 的请求透明路由至同源 `/__api/*` 通道，并开启 Firestore 长轮询（`CI=1`），让手机在国内移动/Wi-Fi 网络下也能正常登录管理中台、读写数据及加载商品图片与视频。
+
 ## v15.15 — 操作日志全覆盖，只保留最近 30 天
 
 **上线需要（按顺序）：**

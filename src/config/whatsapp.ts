@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../services/firebase';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { fetchBootstrapSnapshot } from '../services/networkProxy';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { sanitizeSiteContactConfigForFirestore } from '../utils/firestoreSanitizer';
 
 export interface SiteContactConfig {
@@ -124,32 +125,43 @@ function notifyListeners(cfg: SiteContactConfig) {
   listeners.forEach(cb => cb(cfg));
 }
 
+function normalizeContactPayload(data: Partial<SiteContactConfig>): SiteContactConfig {
+  const cleanWa = isPlaceholderPhoneNumber(data.whatsappNumber)
+    ? ''
+    : (data.whatsappNumber || '').replace(/[^0-9]/g, '');
+  const cleanHotline = isPlaceholderPhoneNumber(data.hotlinePhone)
+    ? ''
+    : (data.hotlinePhone || '').trim();
+  return {
+    whatsappNumber: cleanWa,
+    whatsappDisplay: cleanWa ? (data.whatsappDisplay || `+${cleanWa}`) : '',
+    hotlinePhone: cleanHotline,
+    wechatId: (data.wechatId || DEFAULT_CONTACT_CONFIG.wechatId).trim(),
+    officialEmail: (data.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail).trim(),
+    address: (data.address || DEFAULT_CONTACT_CONFIG.address).trim(),
+    updatedAt: data.updatedAt
+  };
+}
+
 export function initSiteContactSubscription() {
   if (firestoreSubscribed) return;
   firestoreSubscribed = true;
+  let receivedRealtime = false;
+
+  void fetchBootstrapSnapshot().then(snap => {
+    if (receivedRealtime || !snap || !snap.contact) return;
+    notifyListeners(normalizeContactPayload(snap.contact as Partial<SiteContactConfig>));
+  });
+
   try {
     const docRef = doc(db, 'site_config', 'contact');
     onSnapshot(
       docRef,
       snap => {
+        receivedRealtime = true;
         if (snap.exists()) {
           const data = snap.data() as Partial<SiteContactConfig>;
-          const cleanWa = isPlaceholderPhoneNumber(data.whatsappNumber)
-            ? ''
-            : (data.whatsappNumber || '').replace(/[^0-9]/g, '');
-          const cleanHotline = isPlaceholderPhoneNumber(data.hotlinePhone)
-            ? ''
-            : (data.hotlinePhone || '').trim();
-          const merged: SiteContactConfig = {
-            whatsappNumber: cleanWa,
-            whatsappDisplay: cleanWa ? (data.whatsappDisplay || `+${cleanWa}`) : '',
-            hotlinePhone: cleanHotline,
-            wechatId: (data.wechatId || DEFAULT_CONTACT_CONFIG.wechatId).trim(),
-            officialEmail: (data.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail).trim(),
-            address: (data.address || DEFAULT_CONTACT_CONFIG.address).trim(),
-            updatedAt: data.updatedAt
-          };
-          notifyListeners(merged);
+          notifyListeners(normalizeContactPayload(data));
         }
       },
       () => {

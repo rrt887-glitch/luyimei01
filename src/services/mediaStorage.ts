@@ -1,4 +1,5 @@
 import { auth, getStorageService } from './firebase';
+import { toAccessibleMediaUrl, toCanonicalStorageUrl } from './networkProxy';
 import type { StorageReference } from 'firebase/storage';
 
 /** Storage folder for a product: only the (Firestore auto-generated) product ID, never free text. */
@@ -141,7 +142,8 @@ async function uploadWithProgress(
         clearInterval(keepFresh);
         signal?.removeEventListener('abort', onAbort);
         try {
-          resolve(await getDownloadURL(task.snapshot.ref));
+          const downloadUrl = await getDownloadURL(task.snapshot.ref);
+          resolve(toAccessibleMediaUrl(downloadUrl));
         } catch (urlErr) {
           reject(urlErr);
         }
@@ -240,7 +242,9 @@ export async function uploadProductVideo(
  * (form cancelled, or image removed before saving). Only Firebase Storage URLs are touched.
  */
 export async function deleteUploadedMedia(urls: string[]): Promise<number> {
-  const targets = urls.filter(url => url && url.includes('firebasestorage.googleapis.com'));
+  const targets = urls
+    .map(u => toCanonicalStorageUrl(u))
+    .filter(url => url && url.includes('firebasestorage.googleapis.com'));
   if (!targets.length) return 0;
   // Browsers may not delete media (storage.rules); the Cloud Function checks the staff record live.
   try {

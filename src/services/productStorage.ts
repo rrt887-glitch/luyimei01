@@ -3,6 +3,7 @@ import { initialProducts, BUNDLED_IMAGES } from '../data/products';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
 import { sanitizeProductForFirestore } from '../utils/firestoreSanitizer';
+import { fetchBootstrapSnapshot, toAccessibleMediaUrl } from './networkProxy';
 
 /**
  * Single Read-Only Local Cache Key:
@@ -43,7 +44,7 @@ function isLegacyPlaceholderMediaUrl(url: string | undefined | null): boolean {
 /** Old hashed URL of a bundled photo → the photo's current URL (other URLs unchanged). */
 function currentBundledUrl(url: string): string {
   const m = /\/assets\/([a-z_]+?)_\d{10,}[^/]*\.(?:jpe?g|webp)$/.exec(url || '');
-  return (m && BUNDLED_IMAGES[m[1]]) || url;
+  return toAccessibleMediaUrl((m && BUNDLED_IMAGES[m[1]]) || url);
 }
 
 function cleanProductMediaPlaceholders(product: Product, fallbackProduct?: Product): Product {
@@ -53,7 +54,9 @@ function cleanProductMediaPlaceholders(product: Product, fallbackProduct?: Produ
 
   const finalImages = cleanImages.length > 0 ? cleanImages : fallbackProduct?.images || [];
   const cleanVideoUrl =
-    product.videoUrl && !isLegacyPlaceholderMediaUrl(product.videoUrl) ? product.videoUrl : undefined;
+    product.videoUrl && !isLegacyPlaceholderMediaUrl(product.videoUrl)
+      ? toAccessibleMediaUrl(product.videoUrl)
+      : undefined;
   const cleanThumb =
     product.videoThumbnail && !isLegacyPlaceholderMediaUrl(product.videoThumbnail)
       ? currentBundledUrl(product.videoThumbnail)
@@ -169,20 +172,44 @@ export async function fetchFirestoreProducts(): Promise<{
   success: boolean;
   products: Product[];
 }> {
-  try {
-    const snapshot = await withTimeout(getDocs(collection(db, FIRESTORE_PRODUCTS_COLLECTION)), 8000);
-    const cloudList: Product[] = [];
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as Product;
-      if (data && data.id) {
-        cloudList.push(data);
-      }
-    });
-    return { success: true, products: cloudList };
-  } catch (err) {
-    console.warn('Firestore products fetch warning:', err);
-    return { success: false, products: [] };
+  // Try the same-origin `/__api/bootstrap` snapshot first/in-parallel so domestic China networks
+  // without direct `firestore.googleapis.com` access still get live products in ~200 ms.
+  const bootstrapTask = fetchBootstrapSnapshot().then(snap => {
+    if (snap && Array.isArray(snap.products)) {
+      return {
+        success: true,
+        products: snap.products.filter((d): d is Product => Boolean(d && d.id))
+      };
+    }
+    return null;
+  });
+
+  const firestoreTask = (async () => {
+    try {
+      const snapshot = await withTimeout(getDocs(collection(db, FIRESTORE_PRODUCTS_COLLECTION)), 8000);
+      const cloudList: Product[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data() as Product;
+        if (data && data.id) {
+          cloudList.push(data);
+        }
+      });
+      return { success: true, products: cloudList };
+    } catch (err) {
+      console.warn('Firestore products fetch warning:', err);
+      return null;
+    }
+  })();
+
+  const firstSuccess = await Promise.race([
+    bootstrapTask.then(r => r || firestoreTask),
+    firestoreTask.then(r => r || bootstrapTask)
+  ]);
+
+  if (firstSuccess) {
+    return firstSuccess;
   }
+  return { success: false, products: [] };
 }
 
 export async function initPersistentProducts(codeProducts: Product[]): Promise<Product[]> {
@@ -200,10 +227,24 @@ export function subscribeToFirestoreProducts(
   onUpdate: (mergedProducts: Product[]) => void,
   onError?: (err: Error) => void
 ): () => void {
+  let cancelled = false;
+  let hasRealtimeSnapshot = false;
+
+  // Immediately hydrate from same-origin `/__api/bootstrap` so domestic mobile browsers without VPN
+  // render the latest cloud catalog without waiting for WebChannel handshake.
+  void fetchBootstrapSnapshot().then(snap => {
+    if (cancelled || hasRealtimeSnapshot || !snap || !Array.isArray(snap.products)) return;
+    const cloudProducts = snap.products.filter((d): d is Product => Boolean(d && d.id));
+    const merged = mergeCloudWithCodeDefaults(codeProducts, cloudProducts);
+    saveReadOnlyCache(merged);
+    onUpdate(merged);
+  });
+
   const colRef = collection(db, FIRESTORE_PRODUCTS_COLLECTION);
-  return onSnapshot(
+  const unsub = onSnapshot(
     colRef,
     snapshot => {
+      hasRealtimeSnapshot = true;
       const cloudProducts: Product[] = [];
       snapshot.forEach(docSnap => {
         const data = docSnap.data() as Product;
@@ -221,6 +262,11 @@ export function subscribeToFirestoreProducts(
       onError?.(error);
     }
   );
+
+  return () => {
+    cancelled = true;
+    unsub();
+  };
 }
 
 export async function persistProductUpdate(product: Product): Promise<void> {

@@ -1,11 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, type Firestore } from 'firebase/firestore';
 import type { FirebaseStorage } from 'firebase/storage';
 import type { Functions } from 'firebase/functions';
 import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { FIRESTORE_DATABASE_ID, FUNCTIONS_REGION } from '../config/appConfig';
+import { installFirebaseNetworkProxy } from './networkProxy';
+
+// Install same-origin proxy interceptors before Firebase services open connections
+installFirebaseNetworkProxy();
 
 /**
  * Single Firebase app instance for the whole frontend.
@@ -33,7 +37,25 @@ if (typeof window !== 'undefined' && recaptchaSiteKey) {
 }
 
 // CRITICAL: the app uses a *named* Firestore database, never `(default)`.
-export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
+// In the browser, enable long-polling so Firestore WebChannel works cleanly over the same-origin HTTP gateway.
+function createFirestoreInstance(): Firestore {
+  if (typeof window !== 'undefined') {
+    try {
+      return initializeFirestore(
+        app,
+        {
+          experimentalForceLongPolling: true
+        },
+        FIRESTORE_DATABASE_ID
+      );
+    } catch {
+      return getFirestore(app, FIRESTORE_DATABASE_ID);
+    }
+  }
+  return getFirestore(app, FIRESTORE_DATABASE_ID);
+}
+
+export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 
 // Storage (product media, console only) and Cloud Functions (sign-up, staff management) are loaded
