@@ -267,46 +267,57 @@ export function installFirebaseNetworkProxy(): void {
 
 /**
  * Fetches the live public catalog & site config snapshot (`products`, `categories`, `contact`)
- * from same-origin `GET /__api/bootstrap`. Deduplicated across callers during startup.
+ * from same-origin `GET /__api/bootstrap` (with automatic fallback to static `/bootstrap-snapshot.json`
+ * if the `apiGateway` Cloud Function has not been deployed yet). Deduplicated across callers.
  */
 export function fetchBootstrapSnapshot(forceRefresh = false): Promise<BootstrapSnapshot | null> {
   if (typeof window === 'undefined') return Promise.resolve(null);
   if (typeof process !== 'undefined' && process.env?.VITEST) return Promise.resolve(null);
-  if (gatewayStatus === 'unavailable' && !forceRefresh) return Promise.resolve(null);
 
   if (!bootstrapPromise || forceRefresh) {
     bootstrapPromise = (async () => {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 6500);
-      try {
-        const res = await window.fetch(`/__api/bootstrap?_t=${Date.now()}`, {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-          cache: 'no-store',
-          signal: ctrl.signal
-        });
-        const isGateway = res.headers.get('x-lym-gateway') === '1';
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const fetchJsonSnapshot = async (url: string, checkGateway: boolean): Promise<BootstrapSnapshot | null> => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 6500);
+        try {
+          const res = await window.fetch(url, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            cache: 'no-store',
+            signal: ctrl.signal
+          });
+          const isGateway = res.headers.get('x-lym-gateway') === '1';
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
 
-        if (!isGateway && contentType.includes('text/html')) {
-          gatewayStatus = 'unavailable';
+          if (checkGateway) {
+            if (!isGateway && contentType.includes('text/html')) {
+              gatewayStatus = 'unavailable';
+              return null;
+            }
+            if (isGateway) {
+              gatewayStatus = 'available';
+            }
+          } else if (contentType.includes('text/html')) {
+            return null;
+          }
+
+          if (!res.ok) return null;
+          const data = (await res.json()) as BootstrapSnapshot;
+          return data && data.ok ? data : null;
+        } catch {
           return null;
+        } finally {
+          clearTimeout(timer);
         }
-        if (isGateway) {
-          gatewayStatus = 'available';
-        }
-        if (!res.ok) return null;
+      };
 
-        const data = (await res.json()) as BootstrapSnapshot;
-        if (data && data.ok) {
-          return data;
-        }
-        return null;
-      } catch {
-        return null;
-      } finally {
-        clearTimeout(timer);
+      if (gatewayStatus !== 'unavailable' || forceRefresh) {
+        const liveData = await fetchJsonSnapshot(`/__api/bootstrap?_t=${Date.now()}`, true);
+        if (liveData) return liveData;
       }
+
+      // Fallback to build-synced static snapshot served directly by Firebase Hosting CDN
+      return fetchJsonSnapshot(`/bootstrap-snapshot.json?_t=${Date.now()}`, false);
     })();
   }
   return bootstrapPromise;

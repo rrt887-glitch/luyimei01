@@ -180,7 +180,15 @@ export async function handleApiGatewayRequest(req, res) {
       const keyParam = FIREBASE_API_KEY ? `key=${encodeURIComponent(FIREBASE_API_KEY)}` : '';
 
       const [prodRes, catRes, contactRes] = await Promise.all([
-        fetch(`${baseDocsUrl}/products?pageSize=300${keyParam ? `&${keyParam}` : ''}`),
+        fetch(`${baseDocsUrl}:runQuery${keyParam ? `?${keyParam}` : ''}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: 'products' }]
+            }
+          })
+        }),
         fetch(`${baseDocsUrl}/site_config/categories${keyParam ? `?${keyParam}` : ''}`),
         fetch(`${baseDocsUrl}/site_config/contact${keyParam ? `?${keyParam}` : ''}`)
       ]);
@@ -189,9 +197,11 @@ export async function handleApiGatewayRequest(req, res) {
         throw new Error(`Firestore REST products status ${prodRes.status}`);
       }
 
-      const prodJson = await prodRes.json();
-      const products = Array.isArray(prodJson.documents)
-        ? prodJson.documents.map(decodeFirestoreRestDoc).filter(Boolean)
+      const prodRows = await prodRes.json();
+      const products = Array.isArray(prodRows)
+        ? prodRows
+            .map(row => (row && row.document ? decodeFirestoreRestDoc(row.document) : null))
+            .filter(Boolean)
         : [];
 
       let categories = null;
@@ -246,6 +256,14 @@ export async function handleApiGatewayRequest(req, res) {
   } else if (subPath.startsWith('/storage/')) {
     upstreamOrigin = 'https://firebasestorage.googleapis.com';
     upstreamPath = subPath.slice('/storage'.length);
+    const storageObjMatch = upstreamPath.match(/^(\/v0\/b\/[^/]+\/o\/)(.+)$/);
+    if (storageObjMatch && storageObjMatch[2].includes('/')) {
+      try {
+        upstreamPath = `${storageObjMatch[1]}${encodeURIComponent(decodeURIComponent(storageObjMatch[2]))}`;
+      } catch {
+        upstreamPath = `${storageObjMatch[1]}${storageObjMatch[2].split('/').map(encodeURIComponent).join('%2F')}`;
+      }
+    }
   } else if (subPath.startsWith('/functions/')) {
     upstreamOrigin = `https://${FUNCTIONS_REGION}-${FIREBASE_PROJECT_ID}.cloudfunctions.net`;
     upstreamPath = subPath.slice('/functions'.length);

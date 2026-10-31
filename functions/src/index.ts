@@ -1211,7 +1211,7 @@ function projectIdFromEnv(): string {
   return 'gen-lang-client-0359861747';
 }
 
-export const apiGateway = onRequest({ cors: true }, async (req, res) => {
+export const apiGateway = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   res.setHeader('x-lym-gateway', '1');
 
   if (req.method === 'OPTIONS') {
@@ -1274,6 +1274,16 @@ export const apiGateway = onRequest({ cors: true }, async (req, res) => {
   } else if (subPath.startsWith('/storage/')) {
     upstreamOrigin = 'https://firebasestorage.googleapis.com';
     upstreamPath = subPath.slice('/storage'.length);
+    // Firebase Hosting normalizes `%2F` into `/` before invoking the Cloud Function;
+    // Firebase Storage REST `/v0/b/{bucket}/o/{object}` requires slashes inside `{object}` to be `%2F`.
+    const storageObjMatch = upstreamPath.match(/^(\/v0\/b\/[^/]+\/o\/)(.+)$/);
+    if (storageObjMatch && storageObjMatch[2].includes('/')) {
+      try {
+        upstreamPath = `${storageObjMatch[1]}${encodeURIComponent(decodeURIComponent(storageObjMatch[2]))}`;
+      } catch {
+        upstreamPath = `${storageObjMatch[1]}${storageObjMatch[2].split('/').map(encodeURIComponent).join('%2F')}`;
+      }
+    }
   } else if (subPath.startsWith('/functions/') && projectId) {
     upstreamOrigin = `https://${FUNCTIONS_REGION}-${projectId}.cloudfunctions.net`;
     upstreamPath = subPath.slice('/functions'.length);
