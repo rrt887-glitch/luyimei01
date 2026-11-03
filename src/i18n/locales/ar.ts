@@ -366,6 +366,8 @@ export const ar: typeof zh = {
     navNew: 'جديد',
     navFactory: 'المصنع',
     navNews: 'الأخبار',
+    factoryEmpty: 'صور المصنع قريبًا. تواصل معنا لترتيب زيارة أو طلب فيديو للمصنع.',
+    newsEmpty: 'أخبار الشركة قريبًا.',
     newTitle: 'وصل حديثًا',
     newSubtitle: 'أحدث منتجاتنا. افتح أي منتج لمعرفة التفاصيل أو اطلب عرض سعر.',
     newBadge: 'جديد',

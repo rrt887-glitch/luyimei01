@@ -14,7 +14,6 @@ export const NewsSection: React.FC = () => {
   const [showAll, setShowAll] = useState(false);
   const [reading, setReading] = useState<NewsPost | null>(null);
 
-  if (posts.length === 0) return null;
   const shown = showAll ? posts : posts.slice(0, FIRST_SHOWN);
 
   return (
@@ -25,6 +24,9 @@ export const NewsSection: React.FC = () => {
           <p className="text-[15px] text-slate-600 leading-relaxed">{d.site.newsSubtitle}</p>
         </div>
 
+        {posts.length === 0 && (
+          <p className="rounded-xl border border-dashed border-slate-300 px-6 py-10 text-center text-[15px] text-slate-600">{d.site.newsEmpty}</p>
+        )}
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map(post => {
             const title = contentText(post, 'title', lang);

@@ -27,7 +27,6 @@ export const FactorySection: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, step]);
 
-  if (photos.length === 0) return null;
   const current = open !== null ? photos[open] : null;
 
   return (
@@ -38,6 +37,12 @@ export const FactorySection: React.FC = () => {
           <p className="text-[15px] text-slate-600 leading-relaxed">{d.site.factorySubtitle}</p>
         </div>
 
+        {photos.length === 0 && (
+          <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-6 py-10 text-center text-[15px] text-slate-600">
+            {d.site.factoryEmpty}{' '}
+            <a href="#contact" className="font-semibold text-sky-deep hover:underline">{d.nav.contact}</a>
+          </p>
+        )}
         <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
           {photos.map((p, i) => {
             const title = contentText(p, 'title', lang);
