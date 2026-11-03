@@ -425,7 +425,7 @@ async function isActiveSuperAdmin(uid: string): Promise<boolean> {
 // deletions go through deleteProductMedia below, which checks the staff document as well.
 export const onProductMediaUploaded = onObjectFinalized({ retry: true }, async event => {
   const name = event.data.name || '';
-  if (!name.startsWith('products/')) return;
+  if (!name.startsWith('products/') && !name.startsWith('site/')) return;
   const uploaderUid = String(event.data.metadata?.uploaderUid || '');
   if (await isActiveSuperAdmin(uploaderUid)) return;
   await getStorage().bucket(event.data.bucket).file(name).delete({ ignoreNotFound: true });
@@ -450,8 +450,15 @@ export const deleteProductMedia = onCall(async request => {
   let deleted = 0;
   for (const url of urls) {
     const objectPath = storagePathFromUrl(String(url));
-    // Product media only, never anything else in the bucket.
-    if (!objectPath || !/^products\/[A-Za-z0-9_-]+\/(images|videos)\/[^/]+$/.test(objectPath)) continue;
+    // Product media and website content pictures only, never anything else in the bucket.
+    if (
+      !objectPath ||
+      !(
+        /^products\/[A-Za-z0-9_-]+\/(images|videos)\/[^/]+$/.test(objectPath) ||
+        /^site\/(factory|news|contact)\/[^/]+$/.test(objectPath)
+      )
+    )
+      continue;
     await bucket.file(objectPath).delete({ ignoreNotFound: true });
     deleted++;
   }

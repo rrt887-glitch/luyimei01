@@ -19,6 +19,10 @@ import { EngineeringSection } from './components/sections/EngineeringSection';
 import { ServicesSection } from './components/sections/ServicesSection';
 import { ContactSection } from './components/sections/ContactSection';
 import { RecordsTable } from './components/sections/RecordsTable';
+import { NewArrivalsSection, pickNewArrivals } from './components/sections/NewArrivalsSection';
+import { FactorySection } from './components/sections/FactorySection';
+import { NewsSection } from './components/sections/NewsSection';
+import { FloatingContact } from './components/layout/FloatingContact';
 import { Footer } from './components/layout/Footer';
 import { Toast } from './components/common/Toast';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
@@ -216,10 +220,12 @@ const MainApp: React.FC = () => {
         onOpenAdminConsole={handleOpenAdmin}
         onSelectNavCategory={handleSelectNavCategory}
         adminStaffSession={adminSession}
+        hasNewArrivals={pickNewArrivals(products).length > 0}
       />
 
       <main className="flex-1">
         <HeroSection />
+        <NewArrivalsSection products={products} onOpenDetail={setDetailProduct} onInquire={handleInquireProduct} />
         <ProductCatalog
           products={products}
           savedIds={savedIds}
@@ -233,12 +239,15 @@ const MainApp: React.FC = () => {
           onClearOnlyFavorites={() => setOnlyFavorites(false)}
         />
         <EngineeringSection />
+        <FactorySection />
         <ServicesSection onSelectCategory={handleSelectNavCategory} />
+        <NewsSection />
         <ContactSection onInquirySubmitted={showToast} />
         <RecordsTable products={products} onOpenDetail={setDetailProduct} />
       </main>
 
       <Footer onSelectCategory={handleSelectNavCategory} onOpenAdminConsole={handleOpenAdmin} />
+      <FloatingContact />
 
       <DialogBoundary
         onError={msg => {

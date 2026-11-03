@@ -3,7 +3,7 @@ import { Search, Trash2, X, Settings2 } from 'lucide-react';
 import { ProductCategoryDef } from '../../../config/categories';
 import { Modal } from '../AdminUI';
 
-type Status = 'all' | 'in_stock' | 'out_of_stock' | 'featured';
+type Status = 'all' | 'in_stock' | 'out_of_stock' | 'featured' | 'new_arrival';
 
 interface ProductFilterToolbarProps {
   totalCount: number;
@@ -26,7 +26,8 @@ const STATUSES: { key: Status; label: string }[] = [
   { key: 'all', label: '全部状态' },
   { key: 'in_stock', label: '在售' },
   { key: 'out_of_stock', label: '缺货' },
-  { key: 'featured', label: '置顶' }
+  { key: 'featured', label: '置顶' },
+  { key: 'new_arrival', label: '新款' }
 ];
 
 export const ProductFilterToolbar: React.FC<ProductFilterToolbarProps> = ({

@@ -20,6 +20,7 @@ export interface ProductFormState {
   year: string;
   inStock: boolean;
   featured: boolean;
+  newArrival: boolean;
   videoUrl: string;
   images: string[];
   videoThumbnail: string;
@@ -174,6 +175,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <label className="inline-flex items-center gap-2 text-sm text-night cursor-pointer">
                 <input type="checkbox" className="adm-check" checked={form.featured} onChange={e => onChangeForm({ featured: e.target.checked })} />
                 官网置顶
+              </label>
+              <label className="inline-flex items-center gap-2 text-sm text-night cursor-pointer" title="显示在官网首页「新款推荐」">
+                <input type="checkbox" className="adm-check" checked={form.newArrival} onChange={e => onChangeForm({ newArrival: e.target.checked })} />
+                新款推荐
               </label>
             </div>
           </div>

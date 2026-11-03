@@ -45,6 +45,8 @@ export interface Product {
   condition: 'new' | 'certified';
   status?: 'draft' | 'published' | 'archived' | 'out_of_stock';
   featured?: boolean;
+  /** Set when the product is shown in the homepage "New arrivals" row (ISO time it was added there). */
+  newArrivalAt?: string;
   videoUrl?: string;
   videoThumbnail?: string;
   images?: string[];
@@ -98,4 +100,40 @@ export interface UserAccount {
   role?: string;
   registeredAt?: string;
   token?: string;
+}
+
+/** Foreign-language texts of a website content item (Chinese is the item's own fields). */
+export type ContentTranslations<K extends string> = Partial<Record<'en' | 'ar' | 'ru', Partial<Record<K, string>>>>;
+
+/** One picture of the "工厂介绍" section (factory_photos/{id}). */
+export interface FactoryPhoto {
+  id: string;
+  imageUrl: string;
+  /** Where the picture was taken, e.g. 生产车间 / 原料仓库. */
+  title: string;
+  desc?: string;
+  translations?: ContentTranslations<'title' | 'desc'>;
+  /** Display order, smallest first. */
+  order: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** One article of the "公司新闻" section (news/{id}). */
+export interface NewsPost {
+  id: string;
+  title: string;
+  summary?: string;
+  /** Plain text; blank lines separate paragraphs. */
+  content: string;
+  coverUrl?: string;
+  /** More pictures shown under the article. */
+  images?: string[];
+  /** Date shown on the website, YYYY-MM-DD. */
+  date: string;
+  /** Drafts are visible in the console only. */
+  published: boolean;
+  translations?: ContentTranslations<'title' | 'summary' | 'content'>;
+  createdAt?: string;
+  updatedAt?: string;
 }

@@ -15,6 +15,7 @@ const CustomerView = lazy(() => import('./CustomerView').then(m => ({ default: m
 const QuotationView = lazy(() => import('./QuotationView').then(m => ({ default: m.QuotationView })));
 const TeamRbacView = lazy(() => import('./TeamRbacView').then(m => ({ default: m.TeamRbacView })));
 const AuditLogsView = lazy(() => import('./AuditLogsView').then(m => ({ default: m.AuditLogsView })));
+const SiteContentView = lazy(() => import('./SiteContentView').then(m => ({ default: m.SiteContentView })));
 
 const TabFallback: React.FC = () => (
   <div className="flex items-center justify-center gap-3 py-24 text-sm text-slate-500">
@@ -291,6 +292,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
         )}
         {tab === 'team' && <TeamRbacView staffList={staff} currentStaff={currentStaff} leads={leads} onRefreshStaff={refresh} onShowToast={showToast} />}
         {tab === 'audit' && <AuditLogsView logs={auditLogs} />}
+        {tab === 'content' && <SiteContentView onShowToast={showToast} />}
       </Suspense>
       <Toast message={toastMessage} />
     </AdminLayout>

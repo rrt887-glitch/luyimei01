@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
+  LayoutTemplate,
   Package,
   Inbox,
   Users,
@@ -48,6 +49,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: '管理',
     items: [
       { id: 'products', label: '商品库', icon: Package },
+      { id: 'content', label: '官网内容', icon: LayoutTemplate },
       { id: 'team', label: '团队与权限', icon: ShieldCheck },
       { id: 'audit', label: '操作日志', icon: History }
     ]

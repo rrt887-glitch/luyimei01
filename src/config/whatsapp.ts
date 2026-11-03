@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../services/firebase';
-import { fetchBootstrapSnapshot } from '../services/networkProxy';
+import { fetchBootstrapSnapshot, toCanonicalStorageUrl } from '../services/networkProxy';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { sanitizeSiteContactConfigForFirestore } from '../utils/firestoreSanitizer';
 
@@ -12,6 +12,13 @@ export interface SiteContactConfig {
   officialEmail: string; // Official business email
   address: string; // Company headquarters address (Chinese page)
   addressEn: string; // Address shown on the English, Arabic and Russian pages ('' = built-in translation)
+  /** Floating widget (bottom right of the website). Empty = not shown. */
+  wechatQrUrl: string; // WeChat Official Account QR code picture
+  alibabaUrl: string; // Alibaba.com store
+  facebookUrl: string;
+  linkedinUrl: string;
+  youtubeUrl: string;
+  tiktokUrl: string;
   updatedAt?: string;
 }
 
@@ -58,7 +65,13 @@ const DEFAULT_CONTACT_CONFIG: SiteContactConfig = {
   wechatId: (import.meta.env.VITE_COMPANY_WECHAT || 'LYM-Engineering-GZ').trim(),
   officialEmail: (import.meta.env.VITE_COMPANY_EMAIL || 'business@luyimei.com').trim(),
   address: '中国 · 广州高新技术产业开发区中新知识城智造产业园',
-  addressEn: ''
+  addressEn: '',
+  wechatQrUrl: '',
+  alibabaUrl: '',
+  facebookUrl: '',
+  linkedinUrl: '',
+  youtubeUrl: '',
+  tiktokUrl: ''
 };
 
 let currentContactConfig: SiteContactConfig = loadCachedContactConfig();
@@ -84,6 +97,12 @@ function loadCachedContactConfig(): SiteContactConfig {
         officialEmail: parsed.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail,
         address: parsed.address || DEFAULT_CONTACT_CONFIG.address,
         addressEn: (parsed.addressEn || '').trim(),
+        wechatQrUrl: (parsed.wechatQrUrl || '').trim(),
+        alibabaUrl: (parsed.alibabaUrl || '').trim(),
+        facebookUrl: (parsed.facebookUrl || '').trim(),
+        linkedinUrl: (parsed.linkedinUrl || '').trim(),
+        youtubeUrl: (parsed.youtubeUrl || '').trim(),
+        tiktokUrl: (parsed.tiktokUrl || '').trim(),
         updatedAt: parsed.updatedAt
       };
     }
@@ -143,6 +162,12 @@ function normalizeContactPayload(data: Partial<SiteContactConfig>): SiteContactC
     officialEmail: (data.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail).trim(),
     address: (data.address || DEFAULT_CONTACT_CONFIG.address).trim(),
     addressEn: (data.addressEn || '').trim(),
+    wechatQrUrl: (data.wechatQrUrl || '').trim(),
+    alibabaUrl: (data.alibabaUrl || '').trim(),
+    facebookUrl: (data.facebookUrl || '').trim(),
+    linkedinUrl: (data.linkedinUrl || '').trim(),
+    youtubeUrl: (data.youtubeUrl || '').trim(),
+    tiktokUrl: (data.tiktokUrl || '').trim(),
     updatedAt: data.updatedAt
   };
 }
@@ -197,6 +222,15 @@ export async function saveSiteContactConfig(newConfig: Partial<SiteContactConfig
     throw new Error('禁止配置示例占位电话号码，请输入真实的企业固话/热线或留空。');
   }
 
+  // Links of the floating widget: https only ("www.x.com" gets https:// added).
+  const httpsLink = (raw: string | undefined) => {
+    const v = (raw || '').trim();
+    if (!v) return '';
+    const withScheme = /^[a-z]+:\/\//i.test(v) ? v : `https://${v}`;
+    if (!/^https:\/\/[^\s/]+\.[^\s]+$/i.test(withScheme)) throw new Error(`链接格式不正确：${v}（需以 https:// 开头）`);
+    return withScheme;
+  };
+
   const updated: SiteContactConfig = {
     whatsappNumber: rawWa,
     whatsappDisplay: rawWa ? (newConfig.whatsappDisplay?.trim() || `+${rawWa}`) : '',
@@ -205,6 +239,12 @@ export async function saveSiteContactConfig(newConfig: Partial<SiteContactConfig
     officialEmail: (newConfig.officialEmail ?? currentContactConfig.officialEmail).trim() || 'business@luyimei.com',
     address: (newConfig.address ?? currentContactConfig.address).trim() || DEFAULT_CONTACT_CONFIG.address,
     addressEn: (newConfig.addressEn ?? currentContactConfig.addressEn ?? '').trim(),
+    wechatQrUrl: toCanonicalStorageUrl((newConfig.wechatQrUrl ?? currentContactConfig.wechatQrUrl ?? '').trim()),
+    alibabaUrl: httpsLink(newConfig.alibabaUrl ?? currentContactConfig.alibabaUrl),
+    facebookUrl: httpsLink(newConfig.facebookUrl ?? currentContactConfig.facebookUrl),
+    linkedinUrl: httpsLink(newConfig.linkedinUrl ?? currentContactConfig.linkedinUrl),
+    youtubeUrl: httpsLink(newConfig.youtubeUrl ?? currentContactConfig.youtubeUrl),
+    tiktokUrl: httpsLink(newConfig.tiktokUrl ?? currentContactConfig.tiktokUrl),
     updatedAt: new Date().toISOString()
   };
 

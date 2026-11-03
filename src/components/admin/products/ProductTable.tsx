@@ -1,6 +1,6 @@
 import React from 'react';
 import { Product } from '../../../types';
-import { Image as ImageIcon, Play, Star, Truck, Pencil, Trash2, Package } from 'lucide-react';
+import { Image as ImageIcon, Play, Star, Truck, Pencil, Trash2, Package, Sparkles } from 'lucide-react';
 import { EmptyState } from '../AdminUI';
 import { zh } from '../../../i18n/locales/zh';
 import { ProductCategoryDef } from '../../../config/categories';
@@ -17,6 +17,7 @@ interface ProductTableProps {
   onToggleSelect: (id: string) => void;
   onPreviewVideo: (url: string | null) => void;
   onToggleFeatured: (product: Product) => void;
+  onToggleNewArrival: (product: Product) => void;
   onToggleStock: (product: Product) => void;
   onOpenQuickSupply: (product: Product) => void;
   onOpenEdit: (product: Product) => void;
@@ -31,6 +32,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
   onToggleSelect,
   onPreviewVideo,
   onToggleFeatured,
+  onToggleNewArrival,
   onToggleStock,
   onOpenQuickSupply,
   onOpenEdit,
@@ -59,6 +61,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
             <th className="text-end">标价（USD）</th>
             <th>供货</th>
             <th className="text-center">置顶</th>
+            <th className="text-center">新款</th>
             <th>库存</th>
             <th>
               <span className="sr-only">操作</span>
@@ -160,6 +163,17 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                     title={product.featured ? '取消置顶' : '在官网置顶'}
                   >
                     <Star className={`w-4 h-4 ${product.featured ? 'fill-amber-400' : ''}`} />
+                  </button>
+                </td>
+                <td className="text-center">
+                  <button
+                    onClick={() => onToggleNewArrival(product)}
+                    className={`icon-btn ${product.newArrivalAt ? '!text-sky-deep' : '!text-slate-300 hover:!text-sky-deep'}`}
+                    aria-pressed={!!product.newArrivalAt}
+                    aria-label={product.newArrivalAt ? '移出新款推荐' : '加入新款推荐'}
+                    title={product.newArrivalAt ? '移出首页新款推荐' : '加入首页新款推荐'}
+                  >
+                    <Sparkles className={`w-4 h-4 ${product.newArrivalAt ? 'fill-sky' : ''}`} />
                   </button>
                 </td>
                 <td>

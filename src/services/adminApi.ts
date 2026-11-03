@@ -679,6 +679,7 @@ function describeProductChanges(a: Product, b: Product): string {
     ['介绍', a.customDesc || '', b.customDesc || ''],
     ['库存', yesNo(a.inStock, '在售', '缺货'), yesNo(b.inStock, '在售', '缺货')],
     ['官网置顶', yesNo(a.featured, '是', '否'), yesNo(b.featured, '是', '否')],
+    ['新款推荐', yesNo(a.newArrivalAt, '是', '否'), yesNo(b.newArrivalAt, '是', '否')],
     ['发布状态', a.status || '', b.status || ''],
     ['照片', `${a.images?.length || 0} 张`, `${b.images?.length || 0} 张`],
     ['视频', a.videoUrl ? '有' : '无', b.videoUrl ? '有' : '无'],

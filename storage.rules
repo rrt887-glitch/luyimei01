@@ -51,6 +51,17 @@ service firebase.storage {
       allow update, delete: if false;
     }
 
+    // Website content pictures (factory photos, news, the WeChat QR code): public read,
+    // super_admin write with the same live grant, images only, max 10MB, create-only.
+    match /site/{area}/{fileName} {
+      allow read: if true;
+      allow create: if area in ['factory', 'news', 'contact'] &&
+        canWriteMedia() &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+      allow update, delete: if false;
+    }
+
     // Default deny all other paths
     match /{allPaths=**} {
       allow read, write: if false;

@@ -291,6 +291,25 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       await assertFails(setDoc(doc(asUser('admin'), 'site_config', 'contact'), { ...cfg, addressEn: 'x'.repeat(301) }));
     });
 
+    it('website content: factory photos public, news drafts hidden, super-admin-only writes', async () => {
+      const photo = { id: 'f1', imageUrl: 'https://firebasestorage.googleapis.com/v0/b/x/o/site%2Ffactory%2Fa.jpg?alt=media', title: '生产车间', order: 0, translations: { en: { title: 'Workshop' } } };
+      await assertFails(setDoc(doc(asUser('repA'), 'factory_photos', 'f1'), photo));
+      await assertFails(setDoc(doc(asUser('admin'), 'factory_photos', 'f1'), { ...photo, imageUrl: 'http://x.com/a.jpg' }));
+      await assertFails(setDoc(doc(asUser('admin'), 'factory_photos', 'f1'), { ...photo, translations: { fr: { title: 'x' } } }));
+      await assertSucceeds(setDoc(doc(asUser('admin'), 'factory_photos', 'f1'), photo));
+      await assertSucceeds(getDocs(collection(anon(), 'factory_photos')));
+
+      const post = { id: 'n1', title: '展会', content: '正文', date: '2026-11-03', published: true };
+      await assertFails(setDoc(doc(asUser('repA'), 'news', 'n1'), post));
+      await assertFails(setDoc(doc(asUser('admin'), 'news', 'n1'), { ...post, date: '11/03/2026' }));
+      await assertSucceeds(setDoc(doc(asUser('admin'), 'news', 'n1'), post));
+      await assertSucceeds(setDoc(doc(asUser('admin'), 'news', 'n2'), { ...post, id: 'n2', published: false }));
+      await assertSucceeds(getDocs(query(collection(anon(), 'news'), where('published', '==', true))));
+      await assertFails(getDocs(collection(anon(), 'news')));
+      await assertFails(getDoc(doc(anon(), 'news', 'n2')));
+      await assertSucceeds(getDocs(collection(asUser('admin'), 'news')));
+    });
+
     it('bank details (site_config/billing): staff-only read, super-admin-only write', async () => {
       const billing = { beneficiary: 'LYM Co., Ltd.', bankName: 'Example Bank', accountNumber: '123456789', swiftCode: 'EXAMPLECN' };
       await assertSucceeds(setDoc(doc(asUser('admin'), 'site_config', 'billing'), billing));

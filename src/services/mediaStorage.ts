@@ -217,6 +217,34 @@ export async function uploadProductImage(
   );
 }
 
+/** Website content pictures: factory photos, news pictures, the WeChat QR code of the floating widget. */
+export type SiteImageArea = 'factory' | 'news' | 'contact';
+
+/** Uploads a website content picture to `site/{area}/…` and returns its URL. */
+export async function uploadSiteImage(
+  area: SiteImageArea,
+  file: File,
+  onProgress: (p: UploadProgress) => void,
+  signal?: AbortSignal
+): Promise<string> {
+  requireLogin();
+  if (!file.type.startsWith('image/')) throw new UploadRejectedError(`「${file.name}」不是图片文件。`);
+  if (file.size > IMAGE_MAX_BYTES) throw new UploadRejectedError(`「${file.name}」超过 10 MB，请换一张小一些的图片。`);
+  onProgress({ percent: 2, stage: 'preparing', transferred: 0, total: file.size });
+  // QR codes stay small and sharp; photos keep enough detail for a full-screen view.
+  const blob = await compressImage(file, area === 'contact' ? 800 : 1920, area === 'contact' ? 0.92 : 0.82);
+  if (signal?.aborted) throw new UploadCancelledError();
+  const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+  const base = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'photo';
+  return uploadWithProgress(
+    `site/${area}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${base}.${ext}`,
+    blob,
+    blob.type,
+    (done, total) => onProgress({ percent: 10 + Math.round((done / Math.max(1, total)) * 90), stage: 'uploading', transferred: done, total }),
+    signal
+  );
+}
+
 /** Uploads a product video to `products/{productId}/videos/…` and returns its URL. */
 export async function uploadProductVideo(
   productId: string,

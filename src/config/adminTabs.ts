@@ -7,15 +7,16 @@ export type AdminTab =
   | 'customers'
   | 'quotation'
   | 'team'
-  | 'audit';
+  | 'audit'
+  | 'content';
 
 /**
  * Which console tabs each role may open. Mirrors firestore.rules:
- *  - products / site config / customers / audit logs are super-admin only (reads AND writes);
+ *  - products / site config / website content / customers / audit logs are super-admin only;
  *  - sales reps work on leads (pool + own), quotations (own) and can view the team directory.
  */
 const TABS_BY_ROLE: Record<StaffRole, AdminTab[]> = {
-  super_admin: ['dashboard', 'products', 'leads', 'customers', 'quotation', 'team', 'audit'],
+  super_admin: ['dashboard', 'products', 'content', 'leads', 'customers', 'quotation', 'team', 'audit'],
   sales_rep: ['dashboard', 'leads', 'quotation', 'team']
 };
 

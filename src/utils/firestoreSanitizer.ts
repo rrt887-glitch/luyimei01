@@ -90,7 +90,8 @@ export const PRODUCT_ALLOWED_KEYS = [
   'supplySpecs',
   'translations',
   'userModified',
-  'updatedAt'
+  'updatedAt',
+  'newArrivalAt'
 ] as const;
 
 export const INQUIRY_ALLOWED_KEYS = [
@@ -214,8 +215,64 @@ export const SITE_CONTACT_CONFIG_ALLOWED_KEYS = [
   'officialEmail',
   'address',
   'addressEn',
+  'wechatQrUrl',
+  'alibabaUrl',
+  'facebookUrl',
+  'linkedinUrl',
+  'youtubeUrl',
+  'tiktokUrl',
   'updatedAt'
 ] as const;
+
+export const FACTORY_PHOTO_ALLOWED_KEYS = ['id', 'imageUrl', 'title', 'desc', 'translations', 'order', 'createdAt', 'updatedAt'] as const;
+export const NEWS_POST_ALLOWED_KEYS = [
+  'id',
+  'title',
+  'summary',
+  'content',
+  'coverUrl',
+  'images',
+  'date',
+  'published',
+  'translations',
+  'createdAt',
+  'updatedAt'
+] as const;
+
+const toCanonicalMedia = (u: string) =>
+  u.startsWith('/__api/storage/') ? `https://firebasestorage.googleapis.com${u.slice('/__api/storage'.length)}` : u;
+
+/** Drops empty foreign texts so a cleared field falls back to English / Chinese on the website. */
+function cleanContentTranslations(t: unknown): Record<string, Record<string, string>> | undefined {
+  if (!t || typeof t !== 'object') return undefined;
+  const out: Record<string, Record<string, string>> = {};
+  for (const lang of ['en', 'ar', 'ru']) {
+    const src = (t as Record<string, unknown>)[lang];
+    if (!src || typeof src !== 'object') continue;
+    const texts: Record<string, string> = {};
+    for (const [k, v] of Object.entries(src as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.trim()) texts[k] = v.trim();
+    }
+    if (Object.keys(texts).length) out[lang] = texts;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function sanitizeFactoryPhotoForFirestore(photo: Record<string, any>): Record<string, any> {
+  const cleaned = pickAllowedFields({ ...photo, translations: cleanContentTranslations(photo.translations) }, FACTORY_PHOTO_ALLOWED_KEYS);
+  if (typeof cleaned.imageUrl === 'string') cleaned.imageUrl = toCanonicalMedia(cleaned.imageUrl);
+  if (typeof cleaned.desc === 'string' && !cleaned.desc.trim()) delete cleaned.desc;
+  return cleaned;
+}
+
+export function sanitizeNewsPostForFirestore(post: Record<string, any>): Record<string, any> {
+  const cleaned = pickAllowedFields({ ...post, translations: cleanContentTranslations(post.translations) }, NEWS_POST_ALLOWED_KEYS);
+  if (typeof cleaned.coverUrl === 'string') cleaned.coverUrl = toCanonicalMedia(cleaned.coverUrl);
+  if (typeof cleaned.coverUrl === 'string' && !cleaned.coverUrl) delete cleaned.coverUrl;
+  if (Array.isArray(cleaned.images)) cleaned.images = cleaned.images.filter((u: unknown) => typeof u === 'string' && u).map(toCanonicalMedia);
+  if (typeof cleaned.summary === 'string' && !cleaned.summary.trim()) delete cleaned.summary;
+  return cleaned;
+}
 
 export function sanitizeProductForFirestore(product: Record<string, any>): Record<string, any> {
   const cleaned = pickAllowedFields(product, PRODUCT_ALLOWED_KEYS);

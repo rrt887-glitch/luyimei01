@@ -24,6 +24,8 @@ import {
   QUOTATION_CONFIG_ALLOWED_KEYS,
   sanitizeQuotationConfigForFirestore,
   QUOTATION_ALLOWED_KEYS,
+  FACTORY_PHOTO_ALLOWED_KEYS,
+  NEWS_POST_ALLOWED_KEYS,
   sanitizeQuotationForFirestore,
   sanitizeProductForFirestore,
   sanitizeInquiryForFirestore,
@@ -136,6 +138,18 @@ describe('Firestore Rules, Blueprint & Sanitizer 3-Way Alignment', () => {
       entityName: 'CategoryConfig' as const,
       validatorName: 'isValidCategoryConfig',
       sanitizerKeys: CATEGORY_CONFIG_ALLOWED_KEYS
+    },
+    {
+      collection: 'factory_photos',
+      entityName: 'FactoryPhoto' as const,
+      validatorName: 'isValidFactoryPhoto',
+      sanitizerKeys: FACTORY_PHOTO_ALLOWED_KEYS
+    },
+    {
+      collection: 'news',
+      entityName: 'NewsPost' as const,
+      validatorName: 'isValidNewsPost',
+      sanitizerKeys: NEWS_POST_ALLOWED_KEYS
     },
     {
       collection: 'quotations',

@@ -7,6 +7,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { api } from '../../services/api';
 import { StaffAccount } from '../../types/admin';
 import { BrandLogo } from '../common/BrandMark';
+import { useFactoryPhotos, usePublishedNews } from '../../services/siteContent';
 
 interface HeaderProps {
   savedCount: number;
@@ -16,6 +17,8 @@ interface HeaderProps {
   onOpenAdminConsole: () => void;
   onSelectNavCategory: (category: string) => void;
   adminStaffSession?: StaffAccount | null;
+  /** Show the "新款" link (the homepage has a New arrivals row). */
+  hasNewArrivals?: boolean;
 }
 
 type NavItem = { href: string; label: string; category?: string };
@@ -27,7 +30,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAccount,
   onOpenAdminConsole,
   onSelectNavCategory,
-  adminStaffSession
+  adminStaffSession,
+  hasNewArrivals
 }) => {
   const { d, lang, setLang } = useI18n();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -59,9 +63,15 @@ export const Header: React.FC<HeaderProps> = ({
     { href: '#products', label: d.nav.allProducts, category: 'all' },
     ...categories.map(c => ({ href: '#products', label: categoryLabel(c, lang), category: c.id }))
   ];
+  // Content sections appear in the menu only while they have something to show.
+  const hasFactory = useFactoryPhotos().length > 0;
+  const hasNews = usePublishedNews().length > 0;
   const navItems: NavItem[] = [
+    ...(hasNewArrivals ? [{ href: '#new', label: d.site.navNew }] : []),
+    ...(hasFactory ? [{ href: '#factory', label: d.site.navFactory }] : []),
     { href: '#process', label: d.nav.process },
     { href: '#cases', label: d.nav.cases },
+    ...(hasNews ? [{ href: '#news', label: d.site.navNews }] : []),
     { href: '#contact', label: d.nav.contact }
   ];
 

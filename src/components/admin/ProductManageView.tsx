@@ -61,6 +61,7 @@ const INITIAL_FORM_STATE: ProductFormState = {
   year: '2026',
   inStock: true,
   featured: false,
+  newArrival: false,
   videoUrl: '',
   images: [],
   videoThumbnail: '',
@@ -90,7 +91,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     if (categoryIds.has(p.type)) countsByCategory[p.type] = (countsByCategory[p.type] || 0) + 1;
     else countsByCategory.__none += 1;
   }
-  const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'featured'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'in_stock' | 'out_of_stock' | 'featured' | 'new_arrival'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -191,6 +192,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     if (statusFilter === 'in_stock' && !p.inStock) return false;
     if (statusFilter === 'out_of_stock' && p.inStock) return false;
     if (statusFilter === 'featured' && !p.featured) return false;
+    if (statusFilter === 'new_arrival' && !p.newArrivalAt) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -315,6 +317,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         brand: 'lym',
         condition: 'new',
         featured: form.featured,
+        newArrivalAt: form.newArrival ? new Date().toISOString() : undefined,
         videoUrl: form.videoUrl.trim() || undefined,
         videoThumbnail: form.videoThumbnail || form.images[0],
         images: form.images,
@@ -356,6 +359,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
       year: String(p.year),
       inStock: p.inStock,
       featured: !!p.featured,
+      newArrival: !!p.newArrivalAt,
       videoUrl: p.videoUrl || '',
       videoThumbnail: p.videoThumbnail || '',
       images: p.images || [],
@@ -397,6 +401,8 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         year: Number(form.year) || 2026,
         inStock: form.inStock,
         featured: form.featured,
+        // Keep the original date while it stays a new arrival (the row is ordered by it).
+        newArrivalAt: form.newArrival ? editingProduct.newArrivalAt || new Date().toISOString() : undefined,
         videoUrl: form.videoUrl.trim() || undefined,
         videoThumbnail: form.videoThumbnail || form.images[0],
         images: form.images,
@@ -461,6 +467,16 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
       onShowToast(`已${!product.featured ? '置顶推荐' : '取消置顶'}：${product.model}`);
     } catch (err) {
       onShowToast((err as Error).message || '更新置顶状态失败');
+    }
+  };
+
+  const handleToggleNewArrival = async (product: Product) => {
+    try {
+      await adminApi.updateProduct(product.id, { newArrivalAt: product.newArrivalAt ? undefined : new Date().toISOString() });
+      onRefreshProducts();
+      onShowToast(`${product.model} 已${product.newArrivalAt ? '移出' : '加入'}首页新款推荐`);
+    } catch (err) {
+      onShowToast((err as Error).message || '更新新款推荐失败');
     }
   };
 
@@ -546,6 +562,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         onToggleSelect={handleToggleSelect}
         onPreviewVideo={setPreviewVideoModal}
         onToggleFeatured={handleToggleFeatured}
+        onToggleNewArrival={handleToggleNewArrival}
         onToggleStock={handleToggleStock}
         onOpenQuickSupply={handleOpenQuickSupply}
         onOpenEdit={handleOpenEdit}

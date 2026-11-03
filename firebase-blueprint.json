@@ -307,6 +307,11 @@
           "type": "string",
           "maxLength": 64,
           "description": "Last modification timestamp."
+        },
+        "newArrivalAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO time the product was added to the homepage New arrivals row; absent = not shown there."
         }
       },
       "required": [
@@ -638,6 +643,36 @@
           "type": "string",
           "maxLength": 64,
           "description": "Last update timestamp."
+        },
+        "wechatQrUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "WeChat Official Account QR code picture (floating widget)."
+        },
+        "alibabaUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Alibaba.com store link (floating widget)."
+        },
+        "facebookUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Facebook page."
+        },
+        "linkedinUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "LinkedIn page."
+        },
+        "youtubeUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "YouTube channel."
+        },
+        "tiktokUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "TikTok account."
         }
       },
       "required": [
@@ -932,6 +967,114 @@
       },
       "required": [
         "items"
+      ]
+    },
+    "FactoryPhoto": {
+      "title": "Factory photo",
+      "description": "One picture of the website's factory section.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "https URL of the picture."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Where the picture was taken (Chinese)."
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "translations": {
+          "type": "object",
+          "description": "Foreign-language texts keyed by en / ar / ru."
+        },
+        "order": {
+          "type": "number",
+          "description": "Display order, smallest first."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "imageUrl",
+        "title",
+        "order"
+      ]
+    },
+    "NewsPost": {
+      "title": "News post",
+      "description": "One article of the website's company news section.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "Plain text; blank lines separate paragraphs."
+        },
+        "coverUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "images": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "string"
+          }
+        },
+        "date": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "published": {
+          "type": "boolean"
+        },
+        "translations": {
+          "type": "object",
+          "description": "Foreign-language texts keyed by en / ar / ru."
+        },
+        "createdAt": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "updatedAt": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "content",
+        "date",
+        "published"
       ]
     }
   },
