@@ -1,4 +1,4 @@
-import { Product, ProductTranslations } from '../../../types';
+import { Product, ProductTextFields, ProductTranslations } from '../../../types';
 import { ProductCategoryDef } from '../../../config/categories';
 import { UNITS, unitKeyFrom } from '../../../config/units';
 import { SheetSpec } from '../../../utils/xlsx';
@@ -28,14 +28,31 @@ type FieldKey =
   | 'capacityLabel'
   | 'images'
   | 'videoUrl'
-  | 'enName'
-  | 'enSpec'
-  | 'enDesc'
-  | 'enLeadTime'
-  | 'enMoq'
-  | 'enPackaging'
-  | 'enBaseLocation'
-  | 'enCapacityLabel';
+  | ForeignKey;
+
+/** Website languages besides Chinese; each gets its own column for every product text. */
+type ForeignLang = 'en' | 'ar' | 'ru';
+type TextKey = keyof ProductTextFields;
+type ForeignKey = `${ForeignLang}.${TextKey}`;
+
+const FOREIGN_LANGS: { key: ForeignLang; zh: string; aliases: string[] }[] = [
+  { key: 'en', zh: '英文', aliases: ['english'] },
+  { key: 'ar', zh: '阿拉伯文', aliases: ['阿语', 'arabic'] },
+  { key: 'ru', zh: '俄文', aliases: ['俄语', 'russian'] }
+];
+const TEXT_FIELDS: { key: TextKey; zh: string; word: string; width: number; max: number; example?: string }[] = [
+  { key: 'name', zh: '名称', word: 'name', width: 26, max: 300 },
+  { key: 'spec', zh: '规格', word: 'spec', width: 24, max: 500 },
+  { key: 'desc', zh: '描述', word: 'description', width: 40, max: 5000 },
+  { key: 'leadTime', zh: '交货期', word: 'lead time', width: 18, max: 200, example: 'In stock / ships in 3-5 days' },
+  { key: 'moq', zh: '起订量', word: 'moq', width: 14, max: 200, example: '5 sets' },
+  { key: 'packaging', zh: '包装', word: 'packaging', width: 20, max: 200 },
+  { key: 'baseLocation', zh: '发货地', word: 'base location', width: 16, max: 200, example: 'Guangzhou, China' },
+  { key: 'capacityLabel', zh: '产能说明', word: 'capacity', width: 20, max: 200, example: '500 sets / month' }
+];
+const fkey = (lang: ForeignLang, field: TextKey): ForeignKey => `${lang}.${field}`;
+const foreignHeader = (lang: ForeignLang, field: TextKey) =>
+  `${FOREIGN_LANGS.find(l => l.key === lang)!.zh}${TEXT_FIELDS.find(f => f.key === field)!.zh}`;
 
 interface Column {
   key: FieldKey;
@@ -68,16 +85,23 @@ export const PRODUCT_COLUMNS: Column[] = [
   { key: 'baseLocation', header: '发货地', width: 16, aliases: ['生产基地', '发货仓', 'base location'], help: '选填，如 广州黄埔智造基地。' },
   { key: 'capacityLabel', header: '产能说明', width: 20, aliases: ['产能', 'capacity'], help: '选填，如 月产800吨 · 常备库存200吨。' },
   { key: 'images', header: '图片链接', width: 40, aliases: ['图片', '图片地址', 'images', 'image url'], help: `选填，https 开头的图片地址，多张用换行或分号隔开，最多 ${MAX_IMAGES} 张，第一张为主图。也可以导入后在商品库里上传图片。` },
-  { key: 'videoUrl', header: '视频链接', width: 30, aliases: ['视频', 'video', 'video url'], help: '选填，https 开头的视频地址。' },
-  { key: 'enName', header: '英文名称', width: 26, aliases: ['english name', 'name (en)'], help: '选填，英文版官网显示；不填则显示中文名称。' },
-  { key: 'enSpec', header: '英文规格', width: 24, aliases: ['english spec', 'spec (en)'], help: '选填。' },
-  { key: 'enDesc', header: '英文描述', width: 40, aliases: ['english description', 'description (en)'], help: '选填。' },
-  { key: 'enLeadTime', header: '英文交货期', width: 18, aliases: ['english lead time', 'lead time (en)'], help: '选填，如 In stock / ships in 3-5 days。' },
-  { key: 'enMoq', header: '英文起订量', width: 14, aliases: ['english moq', 'moq (en)'], help: '选填，如 5 sets。' },
-  { key: 'enPackaging', header: '英文包装', width: 20, aliases: ['english packaging', 'packaging (en)'], help: '选填。' },
-  { key: 'enBaseLocation', header: '英文发货地', width: 16, aliases: ['english base location', 'base location (en)'], help: '选填，如 Guangzhou, China。' },
-  { key: 'enCapacityLabel', header: '英文产能说明', width: 20, aliases: ['english capacity', 'capacity (en)'], help: '选填，如 500 sets / month。' }
+  { key: 'videoUrl', header: '视频链接', width: 30, aliases: ['视频', 'video', 'video url'], help: '选填，https 开头的视频地址。' }
 ];
+
+for (const lang of FOREIGN_LANGS) {
+  for (const f of TEXT_FIELDS) {
+    PRODUCT_COLUMNS.push({
+      key: fkey(lang.key, f.key),
+      header: foreignHeader(lang.key, f.key),
+      width: f.width,
+      aliases: [...lang.aliases.map(a => `${a} ${f.word}`), ...lang.aliases.map(a => `${a}${f.zh}`), `${f.word} (${lang.key})`],
+      help:
+        lang.key === 'en'
+          ? `选填，英文、阿拉伯文、俄文页面没有对应语言时都显示英文；不填则显示中文。${f.example ? `如 ${f.example}。` : ''}`
+          : `选填，${lang.zh}页面显示；不填则显示英文。`
+    });
+  }
+}
 
 const normalize = (s: string) => String(s || '').replace(/[*＊\s]/g, '').replace(/（/g, '(').replace(/）/g, ')').toLowerCase();
 
@@ -112,13 +136,15 @@ export function buildProductTemplateSheets(categories: ProductCategoryDef[]): Sh
           packaging: '25kg 桶装 / 托盘海运',
           baseLocation: '广州黄埔智造基地',
           capacityLabel: '月产 5 万平方米',
-          enName: 'Colored Anti-slip Pavement Coating',
-          enSpec: '3–5 mm / multiple colours',
-          enLeadTime: 'In stock / ships in 3-5 days',
-          enMoq: '500 m²',
-          enPackaging: '25 kg drums / palletised for sea freight',
-          enBaseLocation: 'Guangzhou, China',
-          enCapacityLabel: '50,000 m² per month'
+          'en.name': 'Colored Anti-slip Pavement Coating',
+          'en.spec': '3–5 mm / multiple colours',
+          'en.leadTime': 'In stock / ships in 3-5 days',
+          'en.moq': '500 m²',
+          'en.packaging': '25 kg drums / palletised for sea freight',
+          'en.baseLocation': 'Guangzhou, China',
+          'en.capacityLabel': '50,000 m² per month',
+          'ar.name': 'طلاء رصف ملون مضاد للانزلاق',
+          'ru.name': 'Цветное противоскользящее покрытие'
         }),
         example({
           name: '小型路面灌缝机',
@@ -177,7 +203,6 @@ export function buildProductExportSheets(
       rows: [
         PRODUCT_COLUMNS.map(c => c.header),
         ...products.map(p => {
-          const en = p.translations?.en || {};
           const values: Record<FieldKey, string | number> = {
             name: displayName(p),
             model: p.model,
@@ -199,14 +224,7 @@ export function buildProductExportSheets(
             // Bundled pictures (site assets) are not URLs another site could use; only real links.
             images: (p.images || []).filter(u => /^https:\/\//.test(u)).join('\n'),
             videoUrl: /^https:\/\//.test(p.videoUrl || '') ? p.videoUrl! : '',
-            enName: en.name || '',
-            enSpec: en.spec || '',
-            enDesc: en.desc || '',
-            enLeadTime: en.leadTime || '',
-            enMoq: en.moq || '',
-            enPackaging: en.packaging || '',
-            enBaseLocation: en.baseLocation || '',
-            enCapacityLabel: en.capacityLabel || ''
+            ...foreignValues(p.translations)
           };
           return PRODUCT_COLUMNS.map(c => values[c.key]);
         })
@@ -231,7 +249,14 @@ export interface ProductImportItem {
   supplySpecs: { leadTime?: string; moq?: string; packaging?: string; baseLocation?: string; capacityLabel?: string };
   images?: string[];
   videoUrl?: string;
-  en: { name?: string; spec?: string; desc?: string; leadTime?: string; moq?: string; packaging?: string; baseLocation?: string; capacityLabel?: string };
+  /** Foreign-language texts from the 英文 / 阿拉伯文 / 俄文 columns (only languages with something filled). */
+  translations: ProductTranslations;
+}
+
+function foreignValues(t: ProductTranslations | undefined): Record<ForeignKey, string> {
+  const out = {} as Record<ForeignKey, string>;
+  for (const lang of FOREIGN_LANGS) for (const f of TEXT_FIELDS) out[fkey(lang.key, f.key)] = t?.[lang.key]?.[f.key] || '';
+  return out;
 }
 
 export interface ParsedProductRow {
@@ -363,22 +388,17 @@ export function parseProductRows(
     for (const [label, v] of [['交货期', supplySpecs.leadTime], ['起订量', supplySpecs.moq], ['包装', supplySpecs.packaging], ['发货地', supplySpecs.baseLocation], ['产能说明', supplySpecs.capacityLabel]] as const) {
       tooLong(label, v || '', 200);
     }
-    const en = {
-      name: get(row, 'enName') || undefined,
-      spec: get(row, 'enSpec') || undefined,
-      desc: get(row, 'enDesc') || undefined,
-      leadTime: get(row, 'enLeadTime') || undefined,
-      moq: get(row, 'enMoq') || undefined,
-      packaging: get(row, 'enPackaging') || undefined,
-      baseLocation: get(row, 'enBaseLocation') || undefined,
-      capacityLabel: get(row, 'enCapacityLabel') || undefined
-    };
-    for (const [label, v] of [['英文交货期', en.leadTime], ['英文起订量', en.moq], ['英文包装', en.packaging], ['英文发货地', en.baseLocation], ['英文产能说明', en.capacityLabel]] as const) {
-      tooLong(label, v || '', 200);
+    const translations: ProductTranslations = {};
+    for (const lang of FOREIGN_LANGS) {
+      const texts: ProductTextFields = {};
+      for (const f of TEXT_FIELDS) {
+        const v = get(row, fkey(lang.key, f.key));
+        if (!v) continue;
+        tooLong(foreignHeader(lang.key, f.key), v, f.max);
+        texts[f.key] = v;
+      }
+      if (Object.keys(texts).length) translations[lang.key] = texts;
     }
-    tooLong('英文名称', en.name || '', 300);
-    tooLong('英文规格', en.spec || '', 500);
-    tooLong('英文描述', en.desc || '', 5000);
 
     // Only valid rows claim their model number (an invalid row is skipped, so it is no duplicate).
     const key = model.toLowerCase();
@@ -405,18 +425,20 @@ export function parseProductRows(
         supplySpecs,
         images: images.length ? images : undefined,
         videoUrl: videoUrl || undefined,
-        en
+        translations
       }
     });
   });
   return { parsed, missingColumns };
 }
 
-/** Merges the English columns into a product's translations without dropping other languages. */
-export function mergeEnglish(current: ProductTranslations | undefined, en: ProductImportItem['en']): ProductTranslations | undefined {
-  const entries = Object.entries(en).filter(([, v]) => v);
-  if (!entries.length) return current;
-  return { ...(current || {}), en: { ...(current?.en || {}), ...Object.fromEntries(entries) } };
+/** Merges the imported foreign texts into a product's translations; empty cells keep what is there. */
+export function mergeTranslations(current: ProductTranslations | undefined, imported: ProductTranslations): ProductTranslations | undefined {
+  const langs = Object.keys(imported) as ForeignLang[];
+  if (!langs.length) return current;
+  const next: ProductTranslations = { ...(current || {}) };
+  for (const lang of langs) next[lang] = { ...(current?.[lang] || {}), ...imported[lang] };
+  return next;
 }
 
 const DEFAULT_SUPPLY = {
@@ -461,7 +483,7 @@ export function newProductFromRow(item: ProductImportItem): Omit<Product, 'id'> 
       baseLocation: s.baseLocation || DEFAULT_SUPPLY.baseLocation,
       packaging: s.packaging || DEFAULT_SUPPLY.packaging
     },
-    translations: mergeEnglish(undefined, item.en)
+    translations: mergeTranslations(undefined, item.translations)
   };
 }
 
@@ -492,6 +514,6 @@ export function updatedProductFromRow(existing: Product, item: ProductImportItem
       ...supply,
       ...Object.fromEntries(Object.entries(s).filter(([, v]) => v))
     },
-    translations: mergeEnglish(existing.translations, item.en)
+    translations: mergeTranslations(existing.translations, item.translations)
   };
 }

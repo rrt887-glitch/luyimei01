@@ -109,7 +109,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                               type="button"
                               onClick={() => onOpenEdit(product)}
                               className="rounded px-1.5 py-px bg-amber-50 text-amber-800 font-medium hover:bg-amber-100"
-                              title={`外语页面会显示中文：${missing.join('、')}。点开编辑，在「外语内容」里填写英文。`}
+                              title={`这些项在外语页面会显示中文：${missing.join('、')}。点开编辑，在「外语内容」里填写英文（阿拉伯文、俄文没填时显示英文）；也可以在 Excel 的英文 / 阿拉伯文 / 俄文列里批量填写。`}
                             >
                               缺英文 {missing.length} 项
                             </button>
