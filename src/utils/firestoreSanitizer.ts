@@ -213,6 +213,7 @@ export const SITE_CONTACT_CONFIG_ALLOWED_KEYS = [
   'wechatId',
   'officialEmail',
   'address',
+  'addressEn',
   'updatedAt'
 ] as const;
 

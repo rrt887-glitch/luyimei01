@@ -627,7 +627,12 @@
         "address": {
           "type": "string",
           "maxLength": 300,
-          "description": "Headquarters address."
+          "description": "Headquarters address (Chinese page)."
+        },
+        "addressEn": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Address shown on the English, Arabic and Russian pages."
         },
         "updatedAt": {
           "type": "string",

@@ -287,6 +287,8 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       const cfg = { wechatId: 'LYM', officialEmail: 'biz@luyimei.com', address: '广州', whatsappNumber: '8613900001111' };
       await assertFails(setDoc(doc(asUser('repA'), 'site_config', 'contact'), cfg));
       await assertSucceeds(setDoc(doc(asUser('admin'), 'site_config', 'contact'), cfg));
+      await assertSucceeds(setDoc(doc(asUser('admin'), 'site_config', 'contact'), { ...cfg, addressEn: 'Guangzhou, China' }));
+      await assertFails(setDoc(doc(asUser('admin'), 'site_config', 'contact'), { ...cfg, addressEn: 'x'.repeat(301) }));
     });
 
     it('bank details (site_config/billing): staff-only read, super-admin-only write', async () => {

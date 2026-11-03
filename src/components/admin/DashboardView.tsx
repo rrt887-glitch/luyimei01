@@ -42,6 +42,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [phoneInput, setPhoneInput] = useState(contactCfg.hotlinePhone || '');
   const [wechatInput, setWechatInput] = useState(contactCfg.wechatId || 'LYM-Engineering-GZ');
   const [emailInput, setEmailInput] = useState(contactCfg.officialEmail || 'business@luyimei.com');
+  const [addressInput, setAddressInput] = useState(contactCfg.address || '');
+  const [addressEnInput, setAddressEnInput] = useState(contactCfg.addressEn || '');
   const [savingContact, setSavingContact] = useState(false);
   const [contactNotice, setContactNotice] = useState<string | null>(null);
 
@@ -51,11 +53,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setPhoneInput(contactCfg.hotlinePhone || '');
     setWechatInput(contactCfg.wechatId || 'LYM-Engineering-GZ');
     setEmailInput(contactCfg.officialEmail || 'business@luyimei.com');
+    setAddressInput(contactCfg.address || '');
+    setAddressEnInput(contactCfg.addressEn || '');
   }, [
     contactCfg.whatsappNumber,
     contactCfg.hotlinePhone,
     contactCfg.wechatId,
-    contactCfg.officialEmail
+    contactCfg.officialEmail,
+    contactCfg.address,
+    contactCfg.addressEn
   ]);
 
   const [localSyncing, setLocalSyncing] = useState(false);
@@ -68,13 +74,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setSavingContact(true);
     setContactNotice(null);
     try {
-      const before = { WhatsApp: contactCfg.whatsappNumber, 电话: contactCfg.hotlinePhone, 微信: contactCfg.wechatId, 邮箱: contactCfg.officialEmail };
-      const after = { WhatsApp: waInput.trim(), 电话: phoneInput.trim(), 微信: wechatInput.trim(), 邮箱: emailInput.trim() };
+      if (!addressInput.trim()) throw new Error('请填写公司地址（中文）。');
+      const before = { WhatsApp: contactCfg.whatsappNumber, 电话: contactCfg.hotlinePhone, 微信: contactCfg.wechatId, 邮箱: contactCfg.officialEmail, 中文地址: contactCfg.address, 英文地址: contactCfg.addressEn };
+      const after = { WhatsApp: waInput.trim(), 电话: phoneInput.trim(), 微信: wechatInput.trim(), 邮箱: emailInput.trim(), 中文地址: addressInput.trim(), 英文地址: addressEnInput.trim() };
       await saveSiteContactConfig({
         whatsappNumber: after.WhatsApp,
         hotlinePhone: after.电话,
         wechatId: after.微信,
-        officialEmail: after.邮箱
+        officialEmail: after.邮箱,
+        address: after.中文地址,
+        addressEn: after.英文地址
       });
       const changes = (Object.keys(after) as (keyof typeof after)[])
         .filter(k => (before[k] || '') !== after[k])
@@ -319,7 +328,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           }
         >
           <p className="text-sm text-slate-500 mb-4 max-w-[70ch]">
-            同步到官网产品咨询按钮、页脚、报价单抬头和搜索引擎信息。WhatsApp 留空时，官网会改为引导客户填写询价表单。
+            同步到官网产品咨询按钮、页脚（含左下角地址）、报价单抬头和搜索引擎信息。WhatsApp 留空时，官网会改为引导客户填写询价表单。
           </p>
           {contactNotice && (
             <div className="anim-pop mb-4 px-3.5 py-2.5 rounded-lg bg-sky-wash text-sm text-night">{contactNotice}</div>
@@ -336,6 +345,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </FormField>
             <FormField label="工程邮箱">
               <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} placeholder="business@luyimei.com" className="field field-sm font-sign" />
+            </FormField>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 mt-4">
+            <FormField label="公司地址（中文）" hint="显示在中文官网页脚左下角">
+              <input type="text" value={addressInput} onChange={e => setAddressInput(e.target.value)} maxLength={300} placeholder="中国 · 广州市……" className="field field-sm" />
+            </FormField>
+            <FormField label="公司地址（英文）" hint="显示在英文、阿拉伯文、俄文页面；留空则用系统自带的译文">
+              <input type="text" value={addressEnInput} onChange={e => setAddressEnInput(e.target.value)} maxLength={300} placeholder="Guangzhou, China" className="field field-sm" />
             </FormField>
           </div>
           <p className="mt-4 text-[13px] text-slate-500">

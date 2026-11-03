@@ -10,7 +10,8 @@ export interface SiteContactConfig {
   hotlinePhone: string; // Official landline/hotline (empty if not configured)
   wechatId: string; // Official business WeChat ID
   officialEmail: string; // Official business email
-  address: string; // Company headquarters address
+  address: string; // Company headquarters address (Chinese page)
+  addressEn: string; // Address shown on the English, Arabic and Russian pages ('' = built-in translation)
   updatedAt?: string;
 }
 
@@ -56,7 +57,8 @@ const DEFAULT_CONTACT_CONFIG: SiteContactConfig = {
   hotlinePhone: getInitialEnvPhone(),
   wechatId: (import.meta.env.VITE_COMPANY_WECHAT || 'LYM-Engineering-GZ').trim(),
   officialEmail: (import.meta.env.VITE_COMPANY_EMAIL || 'business@luyimei.com').trim(),
-  address: '中国 · 广州高新技术产业开发区中新知识城智造产业园'
+  address: '中国 · 广州高新技术产业开发区中新知识城智造产业园',
+  addressEn: ''
 };
 
 let currentContactConfig: SiteContactConfig = loadCachedContactConfig();
@@ -81,6 +83,7 @@ function loadCachedContactConfig(): SiteContactConfig {
         wechatId: parsed.wechatId || DEFAULT_CONTACT_CONFIG.wechatId,
         officialEmail: parsed.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail,
         address: parsed.address || DEFAULT_CONTACT_CONFIG.address,
+        addressEn: (parsed.addressEn || '').trim(),
         updatedAt: parsed.updatedAt
       };
     }
@@ -139,6 +142,7 @@ function normalizeContactPayload(data: Partial<SiteContactConfig>): SiteContactC
     wechatId: (data.wechatId || DEFAULT_CONTACT_CONFIG.wechatId).trim(),
     officialEmail: (data.officialEmail || DEFAULT_CONTACT_CONFIG.officialEmail).trim(),
     address: (data.address || DEFAULT_CONTACT_CONFIG.address).trim(),
+    addressEn: (data.addressEn || '').trim(),
     updatedAt: data.updatedAt
   };
 }
@@ -200,6 +204,7 @@ export async function saveSiteContactConfig(newConfig: Partial<SiteContactConfig
     wechatId: (newConfig.wechatId ?? currentContactConfig.wechatId).trim() || 'LYM-Engineering-GZ',
     officialEmail: (newConfig.officialEmail ?? currentContactConfig.officialEmail).trim() || 'business@luyimei.com',
     address: (newConfig.address ?? currentContactConfig.address).trim() || DEFAULT_CONTACT_CONFIG.address,
+    addressEn: (newConfig.addressEn ?? currentContactConfig.addressEn ?? '').trim(),
     updatedAt: new Date().toISOString()
   };
 

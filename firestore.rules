@@ -37,7 +37,7 @@ service cloud.firestore {
     //
     // 8. Collection: site_config (/site_config/{configId})
     //    Required: ['wechatId', 'officialEmail', 'address']
-    //    Allowed:  ['whatsappNumber', 'whatsappDisplay', 'hotlinePhone', 'wechatId', 'officialEmail', 'address', 'updatedAt']
+    //    Allowed:  ['whatsappNumber', 'whatsappDisplay', 'hotlinePhone', 'wechatId', 'officialEmail', 'address', 'addressEn', 'updatedAt']
     //    site_config/billing (bank details printed on quotations) uses isValidBillingConfig instead:
     //    Required: ['beneficiary', 'bankName', 'accountNumber']
     //    Allowed:  ['beneficiary', 'bankName', 'bankAddress', 'accountNumber', 'swiftCode', 'remarks', 'updatedAt']
@@ -378,11 +378,12 @@ service cloud.firestore {
       return hasRequiredFields(['wechatId', 'officialEmail', 'address']) &&
         hasOnlyAllowedFields([
           'whatsappNumber', 'whatsappDisplay', 'hotlinePhone',
-          'wechatId', 'officialEmail', 'address', 'updatedAt'
+          'wechatId', 'officialEmail', 'address', 'addressEn', 'updatedAt'
         ]) &&
         data.wechatId is string && data.wechatId.size() <= 80 &&
         data.officialEmail is string && data.officialEmail.size() <= 150 &&
         data.address is string && data.address.size() <= 300 &&
+        (!('addressEn' in data) || (data.addressEn is string && data.addressEn.size() <= 300)) &&
         (!('whatsappNumber' in data) || (data.whatsappNumber is string && data.whatsappNumber.size() <= 40)) &&
         (!('whatsappDisplay' in data) || (data.whatsappDisplay is string && data.whatsappDisplay.size() <= 60)) &&
         (!('hotlinePhone' in data) || (data.hotlinePhone is string && data.hotlinePhone.size() <= 60)) &&

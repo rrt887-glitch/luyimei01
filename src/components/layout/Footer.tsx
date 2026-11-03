@@ -33,8 +33,9 @@ export const Footer: React.FC<FooterProps> = ({ onSelectCategory, onOpenAdminCon
     contactCfg.wechatId ? { icon: MessageSquare, label: d.footer.wechat, value: contactCfg.wechatId } : null,
     contactCfg.officialEmail ? { icon: Mail, label: d.footer.email, value: contactCfg.officialEmail } : null
   ].filter(Boolean) as { icon: typeof Phone; label: string; value: string }[];
-  // The address set in the console is in Chinese; other languages show the translated company address.
-  const address = lang === 'zh' ? contactCfg.address || d.footer.address : d.footer.address;
+  // Chinese page: the console's Chinese address. Other languages: the console's English address,
+  // else the built-in translation.
+  const address = lang === 'zh' ? contactCfg.address || d.footer.address : contactCfg.addressEn || d.footer.address;
 
   return (
     <footer className="cv-auto bg-night text-white/75 border-t border-white/10">

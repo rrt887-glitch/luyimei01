@@ -24,6 +24,15 @@
 - **解决国内手机与电脑显示内容不一致**：新增同源云函数网关 `apiGateway`（通过 Firebase Hosting `/__api/**` 重写转发）及 `GET /__api/bootstrap` 实时快照接口。国内手机无需开启 VPN，打开 `lymeik.com` 时直接走同源请求秒级拉取云端最新商品目录、分类和企业联系方式，不再因国内网络无法直连 `firestore.googleapis.com` 而降级显示代码内置的 4 款初始默认数据。
 - **解决国内手机无法登录管理后台**：前端自动将发往 `identitytoolkit.googleapis.com`、`securetoken.googleapis.com`、`firestore.googleapis.com`、`firebasestorage.googleapis.com` 与 `*.cloudfunctions.net` 的请求透明路由至同源 `/__api/*` 通道，并开启 Firestore 长轮询（`CI=1`），让手机在国内移动/Wi-Fi 网络下也能正常登录管理中台、读写数据及加载商品图片与视频。
 
+## v15.16 — 官网联系方式可修改公司地址
+
+**上线需要（按顺序）：**
+1. Cloud Shell 里 `cd ~/luyimei01 && git pull` 后 `npx firebase-tools deploy --only firestore:rules --project gen-lang-client-0359861747`（安全规则新增 `addressEn` 字段）。
+2. AI Studio 重新部署。
+
+- 中台「经营概览 → 官网联系方式」新增两项：**公司地址（中文）**显示在中文官网页脚左下角；**公司地址（英文）**显示在英文、阿拉伯文、俄文页面，留空时用系统自带的译文。
+- 修改地址会写入操作日志（修改官网联系方式）。
+
 ## v15.15 — 操作日志全覆盖，只保留最近 30 天
 
 **上线需要（按顺序）：**
