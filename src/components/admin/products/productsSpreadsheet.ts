@@ -30,7 +30,12 @@ type FieldKey =
   | 'videoUrl'
   | 'enName'
   | 'enSpec'
-  | 'enDesc';
+  | 'enDesc'
+  | 'enLeadTime'
+  | 'enMoq'
+  | 'enPackaging'
+  | 'enBaseLocation'
+  | 'enCapacityLabel';
 
 interface Column {
   key: FieldKey;
@@ -66,7 +71,12 @@ export const PRODUCT_COLUMNS: Column[] = [
   { key: 'videoUrl', header: '视频链接', width: 30, aliases: ['视频', 'video', 'video url'], help: '选填，https 开头的视频地址。' },
   { key: 'enName', header: '英文名称', width: 26, aliases: ['english name', 'name (en)'], help: '选填，英文版官网显示；不填则显示中文名称。' },
   { key: 'enSpec', header: '英文规格', width: 24, aliases: ['english spec', 'spec (en)'], help: '选填。' },
-  { key: 'enDesc', header: '英文描述', width: 40, aliases: ['english description', 'description (en)'], help: '选填。' }
+  { key: 'enDesc', header: '英文描述', width: 40, aliases: ['english description', 'description (en)'], help: '选填。' },
+  { key: 'enLeadTime', header: '英文交货期', width: 18, aliases: ['english lead time', 'lead time (en)'], help: '选填，如 In stock / ships in 3-5 days。' },
+  { key: 'enMoq', header: '英文起订量', width: 14, aliases: ['english moq', 'moq (en)'], help: '选填，如 5 sets。' },
+  { key: 'enPackaging', header: '英文包装', width: 20, aliases: ['english packaging', 'packaging (en)'], help: '选填。' },
+  { key: 'enBaseLocation', header: '英文发货地', width: 16, aliases: ['english base location', 'base location (en)'], help: '选填，如 Guangzhou, China。' },
+  { key: 'enCapacityLabel', header: '英文产能说明', width: 20, aliases: ['english capacity', 'capacity (en)'], help: '选填，如 500 sets / month。' }
 ];
 
 const normalize = (s: string) => String(s || '').replace(/[*＊\s]/g, '').replace(/（/g, '(').replace(/）/g, ')').toLowerCase();
@@ -103,7 +113,12 @@ export function buildProductTemplateSheets(categories: ProductCategoryDef[]): Sh
           baseLocation: '广州黄埔智造基地',
           capacityLabel: '月产 5 万平方米',
           enName: 'Colored Anti-slip Pavement Coating',
-          enSpec: '3–5 mm / multiple colours'
+          enSpec: '3–5 mm / multiple colours',
+          enLeadTime: 'In stock / ships in 3-5 days',
+          enMoq: '500 m²',
+          enPackaging: '25 kg drums / palletised for sea freight',
+          enBaseLocation: 'Guangzhou, China',
+          enCapacityLabel: '50,000 m² per month'
         }),
         example({
           name: '小型路面灌缝机',
@@ -186,7 +201,12 @@ export function buildProductExportSheets(
             videoUrl: /^https:\/\//.test(p.videoUrl || '') ? p.videoUrl! : '',
             enName: en.name || '',
             enSpec: en.spec || '',
-            enDesc: en.desc || ''
+            enDesc: en.desc || '',
+            enLeadTime: en.leadTime || '',
+            enMoq: en.moq || '',
+            enPackaging: en.packaging || '',
+            enBaseLocation: en.baseLocation || '',
+            enCapacityLabel: en.capacityLabel || ''
           };
           return PRODUCT_COLUMNS.map(c => values[c.key]);
         })
@@ -211,7 +231,7 @@ export interface ProductImportItem {
   supplySpecs: { leadTime?: string; moq?: string; packaging?: string; baseLocation?: string; capacityLabel?: string };
   images?: string[];
   videoUrl?: string;
-  en: { name?: string; spec?: string; desc?: string };
+  en: { name?: string; spec?: string; desc?: string; leadTime?: string; moq?: string; packaging?: string; baseLocation?: string; capacityLabel?: string };
 }
 
 export interface ParsedProductRow {
@@ -343,7 +363,19 @@ export function parseProductRows(
     for (const [label, v] of [['交货期', supplySpecs.leadTime], ['起订量', supplySpecs.moq], ['包装', supplySpecs.packaging], ['发货地', supplySpecs.baseLocation], ['产能说明', supplySpecs.capacityLabel]] as const) {
       tooLong(label, v || '', 200);
     }
-    const en = { name: get(row, 'enName') || undefined, spec: get(row, 'enSpec') || undefined, desc: get(row, 'enDesc') || undefined };
+    const en = {
+      name: get(row, 'enName') || undefined,
+      spec: get(row, 'enSpec') || undefined,
+      desc: get(row, 'enDesc') || undefined,
+      leadTime: get(row, 'enLeadTime') || undefined,
+      moq: get(row, 'enMoq') || undefined,
+      packaging: get(row, 'enPackaging') || undefined,
+      baseLocation: get(row, 'enBaseLocation') || undefined,
+      capacityLabel: get(row, 'enCapacityLabel') || undefined
+    };
+    for (const [label, v] of [['英文交货期', en.leadTime], ['英文起订量', en.moq], ['英文包装', en.packaging], ['英文发货地', en.baseLocation], ['英文产能说明', en.capacityLabel]] as const) {
+      tooLong(label, v || '', 200);
+    }
     tooLong('英文名称', en.name || '', 300);
     tooLong('英文规格', en.spec || '', 500);
     tooLong('英文描述', en.desc || '', 5000);

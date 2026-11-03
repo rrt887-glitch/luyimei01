@@ -82,3 +82,37 @@ export function localizeProduct(
     ...supplyText
   };
 }
+
+const FIELD_LABELS: Record<keyof ProductTextFields, string> = {
+  name: '名称',
+  desc: '介绍',
+  spec: '规格',
+  leadTime: '交期',
+  moq: '起订量',
+  capacityLabel: '产能说明',
+  baseLocation: '发货地',
+  packaging: '包装'
+};
+
+/**
+ * Chinese texts of this product that the English page would show in Chinese (no English entered,
+ * and no shipped translation still valid). Arabic and Russian fall back to English, so English
+ * is the one that must be filled. Returns the Chinese labels, e.g. ['交期', '起订量'].
+ */
+export function missingEnglishFields(p: Product): string[] {
+  const builtin = initialProducts.find(cp => cp.id === p.id);
+  const en = p.translations?.en || {};
+  const out: string[] = [];
+  const check = (key: keyof ProductTextFields, zhValue: string | undefined, builtinZh?: string) => {
+    const v = (zhValue || '').trim();
+    if (!v || (en[key] || '').trim()) return;
+    if (builtin && builtinZh !== undefined && v === (builtinZh || '').trim() && builtin.translations?.en?.[key]) return;
+    out.push(FIELD_LABELS[key]);
+  };
+  // Name / description / spec are only free text when set in the console (else dictionary keys).
+  if (p.customName) check('name', p.customName);
+  if (p.customDesc) check('desc', p.customDesc);
+  if (p.customSpec) check('spec', p.customSpec, builtin?.customSpec);
+  for (const f of SUPPLY_FIELDS) check(f, p.supplySpecs?.[f], builtin?.supplySpecs?.[f]);
+  return out;
+}

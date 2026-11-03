@@ -4,6 +4,7 @@ import { Image as ImageIcon, Play, Star, Truck, Pencil, Trash2, Package } from '
 import { EmptyState } from '../AdminUI';
 import { zh } from '../../../i18n/locales/zh';
 import { ProductCategoryDef } from '../../../config/categories';
+import { missingEnglishFields } from '../../../utils/productText';
 
 const displayName = (p: Product) =>
   p.customName || (zh.productsData as Record<string, string>)[p.nameKey] || p.model;
@@ -101,6 +102,19 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                         {displayName(product) !== product.model && <span className="font-sign">{product.model}</span>}
                         <span className={categoryName(product.type) ? '' : 'text-amber-700'}>{categoryName(product.type) || '未分类'}</span>
                         {imgCount > 0 && <span>{imgCount} 张图</span>}
+                        {(() => {
+                          const missing = missingEnglishFields(product);
+                          return missing.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenEdit(product)}
+                              className="rounded px-1.5 py-px bg-amber-50 text-amber-800 font-medium hover:bg-amber-100"
+                              title={`外语页面会显示中文：${missing.join('、')}。点开编辑，在「外语内容」里填写英文。`}
+                            >
+                              缺英文 {missing.length} 项
+                            </button>
+                          ) : null;
+                        })()}
                         {product.videoUrl && (
                           <button
                             type="button"

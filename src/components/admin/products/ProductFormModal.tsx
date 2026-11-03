@@ -104,7 +104,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 className="field field-sm"
               />
             </FormField>
-            <FormField label="型号">
+            <FormField label="型号" hint="所有语言都原样显示，不翻译；请填字母数字型号（如 LYM-SEAL-60），中文描述写在规格里">
               <input
                 type="text"
                 required
