@@ -152,7 +152,8 @@ describe.skipIf(!hasFunctionsDeps)('Cloud Functions triggers', () => {
     vi.restoreAllMocks();
     // In production Cloud Functions provide this; the storage trigger needs a bucket name.
     process.env.FIREBASE_CONFIG ??= JSON.stringify({ projectId: 'demo-test', storageBucket: 'demo-test.appspot.com' });
-    fns ??= await import('../functions/src/index');
+    const functionsEntry = '../functions/src/index';
+    fns ??= await import(/* @vite-ignore */ functionsEntry);
   });
 
   it('#34 quotation issued before the lead has a customer is credited once the link exists', async () => {
