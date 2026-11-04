@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
+import { displayPrice } from '../../utils/price';
 import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
 import { Product, ProductFilterCategory } from '../../types';
@@ -339,7 +340,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                   <div className="flex-1 min-h-4" aria-hidden="true" />
                   <div className="pt-4 border-t border-concrete">
                     <div className="text-night">
-                      <span className="font-sign font-semibold text-xl" dir="ltr">{product.price}</span>
+                      <span className="font-sign font-semibold text-xl" dir="ltr">{displayPrice(product.price)}</span>
                       {unit && <span className="ms-1 text-sm text-slate-500">{unit}</span>}
                     </div>
 

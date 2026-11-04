@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { displayPrice } from '../../utils/price';
 import { useI18n } from '../../i18n';
 import { Product } from '../../types';
 import { Truck, ChevronDown, ChevronUp } from 'lucide-react';
@@ -90,7 +91,7 @@ export const RecordsTable: React.FC<RecordsTableProps> = ({ products, onOpenDeta
                     </td>
                     <td className="py-4 px-4 text-slate-600 whitespace-nowrap">{t.kind}</td>
                     <td className="py-4 px-4 font-sign font-semibold text-night whitespace-nowrap">
-                      <span dir="ltr">{p.price}</span> <span className="font-sans font-normal text-slate-500">{t.unit}</span>
+                      <span dir="ltr">{displayPrice(p.price)}</span> <span className="font-sans font-normal text-slate-500">{t.unit}</span>
                     </td>
                     <td className="py-4 px-4">
                       <span className="inline-flex items-start gap-1.5 text-night">

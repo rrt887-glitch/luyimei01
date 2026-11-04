@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { displayPrice } from '../../utils/price';
 import { useDialog } from '../../hooks/useDialog';
 import { Product } from '../../types';
 import { useI18n } from '../../i18n';
@@ -104,7 +105,7 @@ export const ProductVideoModal: React.FC<ProductVideoModalProps> = ({ product, o
         <div className="flex flex-col justify-between gap-4 border-t border-white/10 bg-[#11161d] p-5 sm:flex-row sm:items-center">
           <div className="min-w-0 space-y-1">
             <p className="text-sm font-semibold text-sky" dir="ltr">
-              {product.price}
+              {displayPrice(product.price)}
               {text.unit && <span className="font-normal text-slate-400"> {text.unit.startsWith('/') ? text.unit : `/ ${text.unit}`}</span>}
             </p>
             {text.spec && <p className="line-clamp-1 text-xs text-slate-400">{text.spec}</p>}

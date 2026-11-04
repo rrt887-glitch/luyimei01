@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { displayPrice } from '../../utils/price';
 import { thumbOf } from '../../utils/productImages';
 import { X, Loader2, CheckCircle2, MessageCircle, AlertTriangle, UserRound, Clock } from 'lucide-react';
 import { useI18n } from '../../i18n';
@@ -146,7 +147,7 @@ export const ProductInquiryModal: React.FC<ProductInquiryModalProps> = ({ produc
               {shown.name}
             </h2>
             <p className="font-sign text-xs text-slate-500 truncate">
-              <span dir="ltr">{product.model}　{product.price}</span>
+              <span dir="ltr">{product.model}　{displayPrice(product.price)}</span>
               {shown.unit ? ` ${shown.unit}` : ''}
             </p>
           </div>

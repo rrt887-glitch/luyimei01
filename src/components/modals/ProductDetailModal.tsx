@@ -1,4 +1,5 @@
 import { SmartImage } from '../common/SmartImage';
+import { displayPrice } from '../../utils/price';
 import React, { useEffect, useMemo, useState } from 'react';
 import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
@@ -196,13 +197,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
 
               <div className="mt-4 flex flex-wrap items-end justify-between gap-x-4 gap-y-1 rounded-xl bg-concrete px-4 py-3">
                 <div className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span className="font-sign text-[1.75rem] leading-none font-semibold text-night" dir="ltr">{product.price}</span>
+                  <span className="font-sign text-[1.75rem] leading-none font-semibold text-night" dir="ltr">{displayPrice(product.price)}</span>
                   {t.unit && <span className="text-sm text-slate-500">{t.unit}</span>}
                 </div>
                 {tier && (
                   <p className="text-sm text-night">
                     <span className="text-slate-500">{d.dialog.tierPrice}</span>{' '}
-                    <span className="font-sign font-semibold" dir="ltr">{tier.priceUsd}</span>{' '}
+                    <span className="font-sign font-semibold" dir="ltr">{displayPrice(String(tier.priceUsd))}</span>{' '}
                     <span className="text-slate-500">· {d.dialog.tierFrom.replace('{qty}', String(tier.minQty))}</span>
                   </p>
                 )}

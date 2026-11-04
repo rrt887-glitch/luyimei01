@@ -1,4 +1,5 @@
 import React from 'react';
+import { displayPrice } from '../../../utils/price';
 import { thumbOf } from '../../../utils/productImages';
 import { Product } from '../../../types';
 import { Image as ImageIcon, Play, Star, Truck, Pencil, Trash2, Package, Sparkles } from 'lucide-react';
@@ -134,7 +135,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                   </div>
                 </td>
                 <td className="text-end whitespace-nowrap">
-                  <div className="font-sign font-semibold">{product.price}</div>
+                  <div className="font-sign font-semibold">{displayPrice(product.price)}</div>
                   {product.tierPrices?.[0]?.priceUsd && (
                     <div className="font-sign text-xs text-slate-500">批量 {product.tierPrices[0].priceUsd}</div>
                   )}

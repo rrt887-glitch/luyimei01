@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { displayPrice } from '../../utils/price';
 import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
 import { Product } from '../../types';
@@ -78,7 +79,7 @@ export const NewArrivalsSection: React.FC<Props> = ({ products, onOpenDetail, on
                   <h3 className="mt-1 font-bold text-night leading-snug line-clamp-2">{t.name}</h3>
                   <div className="flex-1 min-h-3" aria-hidden="true" />
                   <div className="mt-2 text-night">
-                    <span className="font-sign font-semibold text-lg" dir="ltr">{product.price}</span>
+                    <span className="font-sign font-semibold text-lg" dir="ltr">{displayPrice(product.price)}</span>
                     {t.unit && <span className="ms-1 text-sm text-slate-500">{t.unit}</span>}
                   </div>
                   <div className="mt-3 flex items-center gap-2">

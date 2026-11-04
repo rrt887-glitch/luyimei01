@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { displayPrice } from '../../utils/price';
 import { getProductCategories } from '../../config/categories';
 import { Product, SupportedLanguage } from '../../types';
 import { adminApi } from '../../services/adminApi';
@@ -636,7 +637,7 @@ export const QuotationView: React.FC<QuotationViewProps> = ({ products, leads: p
                 <select value={selectedProductId} onChange={e => selectProduct(e.target.value)} className="field field-sm">
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
-                      {p.customName || p.model}（{p.price}）
+                      {p.customName || p.model}（{displayPrice(p.price)}）
                     </option>
                   ))}
                 </select>
