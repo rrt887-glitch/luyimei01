@@ -1,13 +1,16 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Product, ProductTranslations } from '../../types';
 import { initialProducts } from '../../data/products';
 import { useProductCategories } from '../../config/categories';
 import { hasConfiguredWhatsApp, useSiteContactConfig } from '../../config/whatsapp';
 import { adminApi } from '../../services/adminApi';
-import { Plus, MessageCircle, Upload, Download, ImageDown } from 'lucide-react';
+import { Plus, MessageCircle, Upload, Download } from 'lucide-react';
 import { PageHeader } from './AdminUI';
 import { zh } from '../../i18n/locales/zh';
 import { unitKeyFrom } from '../../config/units';
+
+/** Set once the background thumbnail backfill has run in this console session. */
+let thumbBackfillStarted = false;
 
 /** Built-in catalogue text for a translation key such as 'p1Spec' (undefined for free text). */
 const builtinText = (key?: string): string | undefined =>
@@ -110,7 +113,6 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
   const [previewVideoModal, setPreviewVideoModal] = useState<string | null>(null);
 
   const [form, setForm] = useState<ProductFormState>(INITIAL_FORM_STATE);
-  const [thumbProgress, setThumbProgress] = useState<string | null>(null);
   // ID reserved when the "new product" form opens, so uploads land in products/{id}/... from the start.
   const [draftProductId, setDraftProductId] = useState<string>('');
   // Storage URLs uploaded during the current form session (cleaned up if they end up unused).
@@ -516,19 +518,16 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
 
   const inStockCount = products.filter(p => p.inStock).length;
 
-  const missingThumbs = adminApi.countMissingThumbnails();
-  const handleMakeThumbs = async () => {
-    setThumbProgress('0/' + missingThumbs);
-    try {
-      const { made, failed } = await adminApi.generateMissingThumbnails((done, total) => setThumbProgress(`${done}/${total}`));
-      onRefreshProducts();
-      onShowToast(failed ? `已生成 ${made} 张缩略图，${failed} 张图片读取失败` : `已生成 ${made} 张缩略图，官网卡片会改用小图`);
-    } catch (err) {
-      onShowToast((err as Error).message || '生成缩略图失败');
-    } finally {
-      setThumbProgress(null);
-    }
-  };
+  // Pictures uploaded before thumbnails existed get theirs quietly in the background, once per
+  // console session (new uploads make theirs at upload time). Nothing to click.
+  useEffect(() => {
+    if (thumbBackfillStarted || products.length === 0 || adminApi.countMissingThumbnails() === 0) return;
+    thumbBackfillStarted = true;
+    void adminApi
+      .generateMissingThumbnails()
+      .then(({ made }) => made && onRefreshProducts())
+      .catch(err => console.warn('Thumbnail backfill skipped:', err));
+  }, [products, onRefreshProducts]);
 
   return (
     <div className="adm-page">
@@ -537,12 +536,6 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         description={`在售 ${inStockCount} 款，共 ${products.length} 款。这里的修改会实时同步到官网产品目录和供货信息表。`}
         actions={
           <>
-            {missingThumbs > 0 && (
-              <button onClick={() => void handleMakeThumbs()} disabled={thumbProgress !== null} className="btn btn-sm btn-outline" title="给以前上传的图片生成小图，官网卡片加载更快">
-                <ImageDown className="w-4 h-4" />
-                {thumbProgress ? `生成中 ${thumbProgress}` : `生成缩略图（${missingThumbs} 张）`}
-              </button>
-            )}
             <button onClick={() => setIsImportOpen(true)} className="btn btn-sm btn-outline">
               <Upload className="w-4 h-4" />
               批量上架
