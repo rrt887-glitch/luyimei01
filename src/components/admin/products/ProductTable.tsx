@@ -1,4 +1,5 @@
 import React from 'react';
+import { thumbOf } from '../../../utils/productImages';
 import { Product } from '../../../types';
 import { Image as ImageIcon, Play, Star, Truck, Pencil, Trash2, Package, Sparkles } from 'lucide-react';
 import { EmptyState } from '../AdminUI';
@@ -92,7 +93,7 @@ export const ProductTable: React.FC<ProductTableProps> = ({
                       aria-label={`编辑 ${product.model}`}
                     >
                       {imgCount > 0 ? (
-                        <img src={product.images![0]} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                        <img src={thumbOf(product, product.images![0])} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                       ) : (
                         <ImageIcon className="w-5 h-5 text-slate-400" />
                       )}

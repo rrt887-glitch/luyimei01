@@ -80,8 +80,11 @@ const MainApp: React.FC = () => {
 
   // Catalogue: instant first paint from the local cache, then one real-time listener.
   useEffect(() => {
-    const unsubscribeProducts = subscribeToFirestoreProducts(initialProducts, setVisibleProducts, err =>
-      console.warn('Real-time products sync warning:', err)
+    const unsubscribeProducts = subscribeToFirestoreProducts(
+      initialProducts,
+      setVisibleProducts,
+      err => console.warn('Real-time products sync warning:', err),
+      { deltaAfterSnapshot: true }
     );
     const unsubscribeFavs = api.subscribeToFavorites(setSavedIds, err => {
       console.warn('Real-time sync error:', err);

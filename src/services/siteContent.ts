@@ -6,8 +6,7 @@
  * browser so a returning visitor sees the sections at once.
  */
 import { useEffect, useState } from 'react';
-import { collection, deleteDoc, doc, onSnapshot, query, setDoc, where, writeBatch } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { fb, lazySub } from './fb';
 import { FactoryPhoto, NewsPost, SupportedLanguage } from '../types';
 import { sanitizeFactoryPhotoForFirestore, sanitizeNewsPostForFirestore } from '../utils/firestoreSanitizer';
 import { toAccessibleMediaUrl } from './networkProxy';
@@ -52,21 +51,24 @@ export const sortNews = (list: NewsPost[]) =>
 function startFactory() {
   if (factoryStore.started) return;
   factoryStore.started = true;
-  onSnapshot(
-    collection(db, 'factory_photos'),
-    snap => publish(factoryStore, FACTORY_CACHE, sortFactoryPhotos(snap.docs.map(d => ({ ...(d.data() as FactoryPhoto), id: d.id })))),
-    err => console.warn('factory_photos listener warning:', err)
-  );
+  // Started when the page is opened, so the visitor is waiting: load the SDK right away.
+  lazySub(({ db, collection, onSnapshot }) =>
+    onSnapshot(
+      collection(db, 'factory_photos'),
+      snap => publish(factoryStore, FACTORY_CACHE, sortFactoryPhotos(snap.docs.map(d => ({ ...(d.data() as FactoryPhoto), id: d.id })))),
+      err => console.warn('factory_photos listener warning:', err)
+    ), false);
 }
 
 function startNews() {
   if (newsStore.started) return;
   newsStore.started = true;
-  onSnapshot(
-    query(collection(db, 'news'), where('published', '==', true)),
-    snap => publish(newsStore, NEWS_CACHE, sortNews(snap.docs.map(d => ({ ...(d.data() as NewsPost), id: d.id })))),
-    err => console.warn('news listener warning:', err)
-  );
+  lazySub(({ db, collection, onSnapshot, query, where }) =>
+    onSnapshot(
+      query(collection(db, 'news'), where('published', '==', true)),
+      snap => publish(newsStore, NEWS_CACHE, sortNews(snap.docs.map(d => ({ ...(d.data() as NewsPost), id: d.id })))),
+      err => console.warn('news listener warning:', err)
+    ), false);
 }
 
 function useStore<T>(store: Store<T>, start: () => void): T[] {
@@ -121,27 +123,29 @@ export function formatNewsDate(date: string, lang: SupportedLanguage): string {
 
 // ---------------------------------------------------------------- console (super admins)
 
-function requireStaff() {
-  if (!auth.currentUser) throw new Error('登录已过期，请重新登录后再保存。');
+async function requireStaff() {
+  const m = await fb();
+  if (!m.auth.currentUser) throw new Error('登录已过期，请重新登录后再保存。');
+  return m;
 }
 
 export const newContentId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 export async function saveFactoryPhoto(photo: FactoryPhoto): Promise<void> {
-  requireStaff();
+  const { db, doc, setDoc } = await requireStaff();
   const now = new Date().toISOString();
   const payload = sanitizeFactoryPhotoForFirestore({ ...photo, createdAt: photo.createdAt || now, updatedAt: now });
   await withTimeout(setDoc(doc(db, 'factory_photos', photo.id), payload), ADMIN_OPERATION_TIMEOUT_MS);
 }
 
 export async function deleteFactoryPhoto(id: string): Promise<void> {
-  requireStaff();
+  const { db, doc, deleteDoc } = await requireStaff();
   await withTimeout(deleteDoc(doc(db, 'factory_photos', id)), ADMIN_OPERATION_TIMEOUT_MS);
 }
 
 /** Writes the new display order (index in `ids`) of every photo in one batch. */
 export async function reorderFactoryPhotos(photos: FactoryPhoto[]): Promise<void> {
-  requireStaff();
+  const { db, doc, writeBatch } = await requireStaff();
   const batch = writeBatch(db);
   const now = new Date().toISOString();
   photos.forEach((p, i) => batch.set(doc(db, 'factory_photos', p.id), sanitizeFactoryPhotoForFirestore({ ...p, order: i, updatedAt: now })));
@@ -150,21 +154,22 @@ export async function reorderFactoryPhotos(photos: FactoryPhoto[]): Promise<void
 
 /** All posts, drafts included (super admins only). */
 export function subscribeAllNews(onUpdate: (posts: NewsPost[]) => void, onError?: (err: Error) => void): () => void {
-  return onSnapshot(
-    collection(db, 'news'),
-    snap => onUpdate(sortNews(snap.docs.map(d => ({ ...(d.data() as NewsPost), id: d.id })))),
-    err => onError?.(err)
-  );
+  return lazySub(({ db, collection, onSnapshot }) =>
+    onSnapshot(
+      collection(db, 'news'),
+      snap => onUpdate(sortNews(snap.docs.map(d => ({ ...(d.data() as NewsPost), id: d.id })))),
+      err => onError?.(err)
+    ), false);
 }
 
 export async function saveNewsPost(post: NewsPost): Promise<void> {
-  requireStaff();
+  const { db, doc, setDoc } = await requireStaff();
   const now = new Date().toISOString();
   const payload = sanitizeNewsPostForFirestore({ ...post, createdAt: post.createdAt || now, updatedAt: now });
   await withTimeout(setDoc(doc(db, 'news', post.id), payload), ADMIN_OPERATION_TIMEOUT_MS);
 }
 
 export async function deleteNewsPost(id: string): Promise<void> {
-  requireStaff();
+  const { db, doc, deleteDoc } = await requireStaff();
   await withTimeout(deleteDoc(doc(db, 'news', id)), ADMIN_OPERATION_TIMEOUT_MS);
 }

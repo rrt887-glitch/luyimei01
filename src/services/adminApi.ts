@@ -2,6 +2,8 @@ import type { LeadImportItem } from './admin/leadsCrmService';
 import { Product, InquiryFormData } from '../types';
 import { initialProducts } from '../data/products';
 import { canEditCatalog, roleLabel } from '../config/staffRoles';
+import { createThumbnailFromUrl } from './mediaStorage';
+import { toCanonicalStorageUrl } from './networkProxy';
 import {
   initPersistentProducts,
   persistProductUpdate,
@@ -280,6 +282,40 @@ class AdminApiService {
     }
     if (count > 0) this.auditService.logAction(actor, '批量删除商品', `共 ${count} 款商品`, `选中 ${ids.length} 款，已删除 ${count} 款`);
     return count;
+  }
+
+  /** Pictures in cloud storage that have no small version yet (uploaded before thumbnails existed). */
+  countMissingThumbnails(): number {
+    return this.products.filter(p => !p.isDeleted).reduce((n, p) => n + missingThumbImages(p).length, 0);
+  }
+
+  /** Makes the missing small versions, product by product; returns how many were made / failed. */
+  async generateMissingThumbnails(onProgress?: (done: number, total: number) => void): Promise<{ made: number; failed: number }> {
+    const actor = this.assertSuperAdminForProductWrite();
+    const todo = this.products.filter(p => !p.isDeleted && missingThumbImages(p).length > 0);
+    const total = todo.reduce((n, p) => n + missingThumbImages(p).length, 0);
+    let made = 0;
+    let failed = 0;
+    for (const p of todo) {
+      const thumbs: Record<string, string> = { ...(p.thumbs || {}) };
+      for (const url of missingThumbImages(p)) {
+        try {
+          const t = await createThumbnailFromUrl(p.id, url);
+          if (t) {
+            thumbs[toCanonicalStorageUrl(url)] = t;
+            made++;
+          } else failed++;
+        } catch (err) {
+          console.warn('Thumbnail warning:', err);
+          failed++;
+        }
+        onProgress?.(made + failed, total);
+      }
+      const current = this.products.find(x => x.id === p.id);
+      if (current) await this.updateProduct(p.id, { thumbs });
+    }
+    if (made) this.auditService.logAction(actor, '生成商品缩略图', `共 ${made} 张`, failed ? `${failed} 张图片读取失败` : '官网卡片改用小图');
+    return { made, failed };
   }
 
   // ============================================================================
@@ -708,4 +744,9 @@ function describeProductChanges(a: Product, b: Product): string {
     .filter(([, x, y]) => x !== y)
     .map(([label, x, y]) => (label === '外语内容' ? '外语内容已修改' : `${label}：${short(x)} → ${short(y)}`))
     .join('；');
+}
+
+/** Pictures of a product stored in cloud storage without a small version. */
+function missingThumbImages(p: Product): string[] {
+  return (p.images || []).filter(u => /firebasestorage\.googleapis\.com|\/__api\/storage\//.test(u) && !p.thumbs?.[toCanonicalStorageUrl(u)]);
 }

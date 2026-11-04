@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { db, auth } from '../services/firebase';
+import { fb, lazySub } from '../services/fb';
 import { fetchBootstrapSnapshot, toCanonicalStorageUrl } from '../services/networkProxy';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { sanitizeSiteContactConfigForFirestore } from '../utils/firestoreSanitizer';
 
 export interface SiteContactConfig {
@@ -182,9 +181,10 @@ export function initSiteContactSubscription() {
     notifyListeners(normalizeContactPayload(snap.contact as Partial<SiteContactConfig>));
   });
 
-  try {
+  lazySub(({ db, doc, onSnapshot }) => {
+    try {
     const docRef = doc(db, 'site_config', 'contact');
-    onSnapshot(
+    return onSnapshot(
       docRef,
       snap => {
         receivedRealtime = true;
@@ -197,9 +197,10 @@ export function initSiteContactSubscription() {
         // Ignore snapshot errors on offline clients
       }
     );
-  } catch {
-    // Ignore
-  }
+    } catch {
+      // Ignore
+    }
+  });
 }
 
 export function getSiteContactConfig(): SiteContactConfig {
@@ -208,6 +209,7 @@ export function getSiteContactConfig(): SiteContactConfig {
 }
 
 export async function saveSiteContactConfig(newConfig: Partial<SiteContactConfig>): Promise<SiteContactConfig> {
+  const { auth, db, doc, setDoc } = await fb();
   if (!auth.currentUser) {
     throw new Error('未检测到管理员登录凭证，无法保存企业联系方式配置。');
   }

@@ -42,7 +42,7 @@ export const NewsPage: React.FC<{ articleId?: string }> = ({ articleId }) => {
               <article key={post.id} className="group flex flex-col rounded-xl border border-line bg-white overflow-hidden transition-colors hover:border-slate-400">
                 <a href={href} className="relative block aspect-[16/10] bg-concrete overflow-hidden" aria-label={title}>
                   {post.coverUrl ? (
-                    <SmartImage src={mediaUrl(post.coverUrl)} alt={title} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]" />
+                    <SmartImage src={mediaUrl(post.coverThumbUrl || post.coverUrl)} alt={title} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.03]" />
                   ) : (
                     <span className="flex w-full h-full items-center justify-center text-slate-300">
                       <Newspaper className="w-10 h-10" />

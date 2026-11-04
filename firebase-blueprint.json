@@ -312,6 +312,10 @@
           "type": "string",
           "maxLength": 64,
           "description": "ISO time the product was added to the homepage New arrivals row; absent = not shown there."
+        },
+        "thumbs": {
+          "type": "object",
+          "description": "Small versions of images for cards and lists: full image URL → thumbnail URL."
         }
       },
       "required": [
@@ -1009,6 +1013,11 @@
         "updatedAt": {
           "type": "string",
           "maxLength": 64
+        },
+        "thumbUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Small version of the picture for the photo grid."
         }
       },
       "required": [
@@ -1069,6 +1078,11 @@
         "updatedAt": {
           "type": "string",
           "maxLength": 64
+        },
+        "coverThumbUrl": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Small version of the cover for news cards."
         }
       },
       "required": [

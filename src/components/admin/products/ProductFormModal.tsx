@@ -23,6 +23,8 @@ export interface ProductFormState {
   newArrival: boolean;
   videoUrl: string;
   images: string[];
+  /** Small versions of `images` (full URL → thumbnail URL). */
+  thumbs: Record<string, string>;
   videoThumbnail: string;
   supplyLeadTime: string;
   supplyMoq: string;

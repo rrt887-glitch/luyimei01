@@ -1,5 +1,6 @@
 import { auth, getStorageService } from './firebase';
 import { toAccessibleMediaUrl, toCanonicalStorageUrl } from './networkProxy';
+import { THUMB_WIDTH } from '../utils/productImages';
 import type { StorageReference } from 'firebase/storage';
 
 /** Storage folder for a product: only the (Firestore auto-generated) product ID, never free text. */
@@ -199,22 +200,48 @@ export async function uploadProductImage(
   file: File,
   onProgress: (p: UploadProgress) => void,
   signal?: AbortSignal
-): Promise<string> {
+): Promise<{ url: string; thumbUrl: string }> {
   requireLogin();
   if (!file.type.startsWith('image/')) throw new UploadRejectedError(`「${file.name}」不是图片文件。`);
   if (file.size > IMAGE_MAX_BYTES) throw new UploadRejectedError(`「${file.name}」超过 10 MB，请换一张小一些的图片。`);
   onProgress({ percent: 2, stage: 'preparing', transferred: 0, total: file.size });
-  const blob = await compressImage(file);
+  const [blob, small] = await Promise.all([compressImage(file), compressImage(file, THUMB_WIDTH, 0.78)]);
   if (signal?.aborted) throw new UploadCancelledError();
   const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
   const base = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'photo';
-  return uploadWithProgress(
-    `${productFolder(productId)}/images/${Date.now()}_${base}.${ext}`,
-    blob,
-    blob.type,
-    (done, total) => onProgress({ percent: 10 + Math.round((done / Math.max(1, total)) * 90), stage: 'uploading', transferred: done, total }),
+  const stamp = Date.now();
+  const total = blob.size + small.size;
+  // The small picture goes first (it is tiny), then the full one; progress covers both.
+  const thumbUrl = await uploadWithProgress(
+    `${productFolder(productId)}/images/${stamp}_${base}_thumb.${ext}`,
+    small,
+    small.type,
+    done => onProgress({ percent: 10 + Math.round((done / Math.max(1, total)) * 90), stage: 'uploading', transferred: done, total }),
     signal
   );
+  const url = await uploadWithProgress(
+    `${productFolder(productId)}/images/${stamp}_${base}.${ext}`,
+    blob,
+    blob.type,
+    done => onProgress({ percent: 10 + Math.round(((small.size + done) / Math.max(1, total)) * 90), stage: 'uploading', transferred: small.size + done, total }),
+    signal
+  );
+  return { url, thumbUrl };
+}
+
+/**
+ * Makes the small version of an existing product picture (for pictures uploaded before
+ * thumbnails existed). Returns its URL, or '' when the picture cannot be read.
+ */
+export async function createThumbnailFromUrl(productId: string, imageUrl: string): Promise<string> {
+  requireLogin();
+  const res = await fetch(toAccessibleMediaUrl(imageUrl));
+  if (!res.ok) return '';
+  const src = await res.blob();
+  if (!src.type.startsWith('image/')) return '';
+  const small = await compressImage(new File([src], 'photo', { type: src.type }), THUMB_WIDTH, 0.78);
+  const ext = small.type === 'image/webp' ? 'webp' : 'jpg';
+  return uploadWithProgress(`${productFolder(productId)}/images/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_thumb.${ext}`, small, small.type, () => {});
 }
 
 /** Website content pictures: factory photos, news pictures, the WeChat QR code of the floating widget. */
@@ -227,22 +254,40 @@ export async function uploadSiteImage(
   onProgress: (p: UploadProgress) => void,
   signal?: AbortSignal
 ): Promise<string> {
+  return (await uploadSiteImageWithThumb(area, file, onProgress, signal, false)).url;
+}
+
+/** Like uploadSiteImage, plus a small version for tiles and cards (factory photos, news covers). */
+export async function uploadSiteImageWithThumb(
+  area: SiteImageArea,
+  file: File,
+  onProgress: (p: UploadProgress) => void,
+  signal?: AbortSignal,
+  withThumb = true
+): Promise<{ url: string; thumbUrl: string }> {
   requireLogin();
   if (!file.type.startsWith('image/')) throw new UploadRejectedError(`「${file.name}」不是图片文件。`);
   if (file.size > IMAGE_MAX_BYTES) throw new UploadRejectedError(`「${file.name}」超过 10 MB，请换一张小一些的图片。`);
   onProgress({ percent: 2, stage: 'preparing', transferred: 0, total: file.size });
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let thumbUrl = '';
+  if (withThumb) {
+    const small = await compressImage(file, THUMB_WIDTH, 0.78);
+    thumbUrl = await uploadWithProgress(`site/${area}/${stamp}_thumb.${small.type === 'image/webp' ? 'webp' : 'jpg'}`, small, small.type, () => {}, signal);
+  }
   // QR codes stay small and sharp; photos keep enough detail for a full-screen view.
   const blob = await compressImage(file, area === 'contact' ? 800 : 1920, area === 'contact' ? 0.92 : 0.82);
   if (signal?.aborted) throw new UploadCancelledError();
   const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
   const base = file.name.replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60) || 'photo';
-  return uploadWithProgress(
-    `site/${area}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${base}.${ext}`,
+  const url = await uploadWithProgress(
+    `site/${area}/${stamp}_${base}.${ext}`,
     blob,
     blob.type,
     (done, total) => onProgress({ percent: 10 + Math.round((done / Math.max(1, total)) * 90), stage: 'uploading', transferred: done, total }),
     signal
   );
+  return { url, thumbUrl };
 }
 
 /** Uploads a product video to `products/{productId}/videos/…` and returns its URL. */

@@ -1,5 +1,6 @@
 import { SmartImage } from '../common/SmartImage';
 import React, { useEffect, useMemo, useState } from 'react';
+import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
 import { Product } from '../../types';
 import { ProductIllustration } from '../common/SvgIllustrations';
@@ -164,7 +165,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ product,
                     }`}
                   >
                     {m.kind === 'image' ? (
-                      <img src={m.src} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                      <img src={thumbOf(product, m.src)} alt="" loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                     ) : (
                       <span className="flex w-full h-full items-center justify-center bg-black">
                         {m.poster && <img src={m.poster} alt="" referrerPolicy="no-referrer" className="absolute inset-0 w-full h-full object-cover opacity-50" />}

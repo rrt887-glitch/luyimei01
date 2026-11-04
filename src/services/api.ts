@@ -4,24 +4,8 @@ import {
   SubmitInquiryResult,
   UserAccount
 } from '../types';
-import { db, auth, getFunctionsService, functionUrl } from './firebase';
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  where,
-  writeBatch
-} from 'firebase/firestore';
-import {
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut
-} from 'firebase/auth';
+import type { DocumentReference } from 'firebase/firestore';
+import { fb, fbNow, currentFirebaseUser, lazySub } from './fb';
 import { withTimeout } from './admin/adminShared';
 import { hasAdminSession, purgeAdminStorage } from './adminSession';
 import { validatePasswordStrength } from '../utils/crypto';
@@ -51,7 +35,7 @@ export interface BuyerProfile {
  * would own inquiries submitted from the website and show them in the buyer centre).
  */
 function buyerAuthUser(): { uid: string; email: string | null } | null {
-  const user = auth.currentUser;
+  const user = currentFirebaseUser();
   if (!user) return null;
   if (isReservedStaffEmail(user.email) || hasAdminSession()) return null;
   return user;
@@ -61,7 +45,15 @@ function buyerAuthUser(): { uid: string; email: string | null } | null {
  * Creates an inquiry together with its delivery receipt (firestore.rules: the receipt can only be
  * created in the same batch). The receipt later proves, to anyone holding the id, that it arrived.
  */
-function createInquiryWithReceipt(id: string, payload: Record<string, any>) {
+/** The SDK, once the signed-in user (if any) has been restored from this browser. */
+async function fbSignedIn() {
+  const m = await fb();
+  await m.auth.authStateReady();
+  return m;
+}
+
+async function createInquiryWithReceipt(id: string, payload: Record<string, any>) {
+  const { db, doc, writeBatch } = await fb();
   const batch = writeBatch(db);
   batch.set(doc(db, 'inquiries', id), payload);
   batch.set(doc(db, 'inquiry_receipts', id), { createdAt: String(payload.createdAt || new Date().toISOString()).slice(0, 64) });
@@ -93,7 +85,7 @@ export class SignupError extends Error {
 
 /** True when the function's host answers at all (any status), i.e. the visitor's network can reach it. */
 async function canReachFunction(name: string): Promise<boolean> {
-  const url = functionUrl(name);
+  const url = (await fb()).functionUrl(name);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 6000);
   try {
@@ -109,7 +101,7 @@ async function canReachFunction(name: string): Promise<boolean> {
 async function callSignupFunction<Req, Res = unknown>(name: string, payload: Req, timeout: number = TIMEOUTS.adminCallable): Promise<Res> {
   let callable;
   try {
-    const [{ httpsCallable }, functions] = await Promise.all([import('firebase/functions'), getFunctionsService()]);
+    const [{ httpsCallable }, functions] = await Promise.all([import('firebase/functions'), fb().then(m => m.getFunctionsService())]);
     callable = httpsCallable<Req, Res>(functions, name, { timeout });
   } catch (err) {
     throw new SignupError('network', (err as Error)?.message);
@@ -313,6 +305,7 @@ class ApiService {
     const failed = new Set<string>();
 
     try {
+      const { db, doc, auth } = await fbSignedIn();
       const signedInUid = auth.currentUser?.uid || '';
       for (const item of queue) {
         const owner = String(item.payload?.buyerUid || '');
@@ -350,7 +343,8 @@ class ApiService {
    * also read their own inquiry (covers inquiries sent before receipts existed). When neither can
    * be confirmed the item stays queued: it is never dropped on a guess.
    */
-  private async alreadyDelivered(ref: ReturnType<typeof doc>, owner: string): Promise<boolean> {
+  private async alreadyDelivered(ref: DocumentReference, owner: string): Promise<boolean> {
+    const { db, doc, getDoc } = await fb();
     try {
       if ((await withTimeout(getDoc(doc(db, 'inquiry_receipts', ref.id)), 6000)).exists()) return true;
     } catch {
@@ -451,6 +445,8 @@ class ApiService {
 
     let firestoreUnsub: (() => void) | null = null;
 
+    // Signed-in buyers' favourites sync once the page is idle (until then the copy saved in this browser shows).
+    const authUnsub = lazySub(({ db, auth, collection, onSnapshot, onAuthStateChanged, query, where }) => {
     const attachCloudListener = (uid: string) => {
       if (firestoreUnsub) {
         firestoreUnsub();
@@ -486,7 +482,7 @@ class ApiService {
       );
     };
 
-    const authUnsub = onAuthStateChanged(auth, firebaseUser => {
+    return onAuthStateChanged(auth, firebaseUser => {
       if (firebaseUser?.uid && buyerAuthUser()) {
         attachCloudListener(firebaseUser.uid);
       } else {
@@ -496,6 +492,7 @@ class ApiService {
         }
         onUpdate(new Set(this.loadLocalFavorites()));
       }
+    });
     });
 
     return () => {
@@ -521,6 +518,7 @@ class ApiService {
     this.saveLocalFavorites(this.lastKnownFavs);
     this.notifyFavoritesChange();
 
+    const { db, doc, deleteDoc, setDoc } = await fbSignedIn();
     const uid = buyerAuthUser()?.uid;
     if (!uid) {
       return nextState;
@@ -577,6 +575,7 @@ class ApiService {
     }
     this.lastInquirySubmitAt = nowMs;
 
+    const { db, doc, collection } = await fbSignedIn();
     const cleanId = `INQ-${doc(collection(db, 'inquiries')).id}`;
     const currentBuyer = this.getCurrentUser();
     // Strictly bind buyerUid ONLY to verified Firebase Auth session UID (prevents spoofing another buyer's UID)
@@ -663,7 +662,7 @@ class ApiService {
     }
     // The saved buyer profile is only valid while that buyer is the one signed in. Once someone
     // else (e.g. staff, in the console) has signed in in this browser, it belongs to nobody.
-    const signedIn = auth.currentUser;
+    const signedIn = currentFirebaseUser();
     if (this.currentUser && signedIn && (signedIn.uid !== this.currentUser.id || !buyerAuthUser())) {
       this.clearBuyerSession();
     }
@@ -688,7 +687,9 @@ class ApiService {
       console.warn('Failed to remove user session:', e);
     }
     if (!hasAdminSession()) {
-      void signOut(auth).catch(() => {});
+      // Nothing to sign out of if Firebase never loaded in this tab... except a session saved in
+      // this browser, which Firebase restores when it loads: load it and sign out.
+      void (fbNow() ? Promise.resolve(fbNow()!) : fb()).then(m => m.signOut(m.auth)).catch(() => {});
     }
     this.loadLocalFavorites();
     this.notifyFavoritesChange();
@@ -715,6 +716,7 @@ class ApiService {
       purgeAdminStorage();
     }
 
+    const { auth, db, doc, getDoc, setDoc, signInWithEmailAndPassword } = await fb();
     let uid: string;
     let idToken: string;
     try {
@@ -910,6 +912,7 @@ class ApiService {
    * merging with any locally queued outbox inquiries so cross-device login always displays complete history.
    */
   async fetchUserInquiries(buyerId?: string): Promise<InquiryRecord[]> {
+    const { db, collection, getDocs, query, where } = await fbSignedIn();
     const buyer = buyerAuthUser();
     const uid = buyer?.uid || buyerId || this.getCurrentBuyerId();
     const localList = this.getUserInquiries(uid);

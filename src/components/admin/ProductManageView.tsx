@@ -4,7 +4,7 @@ import { initialProducts } from '../../data/products';
 import { useProductCategories } from '../../config/categories';
 import { hasConfiguredWhatsApp, useSiteContactConfig } from '../../config/whatsapp';
 import { adminApi } from '../../services/adminApi';
-import { Plus, MessageCircle, Upload, Download } from 'lucide-react';
+import { Plus, MessageCircle, Upload, Download, ImageDown } from 'lucide-react';
 import { PageHeader } from './AdminUI';
 import { zh } from '../../i18n/locales/zh';
 import { unitKeyFrom } from '../../config/units';
@@ -64,6 +64,7 @@ const INITIAL_FORM_STATE: ProductFormState = {
   newArrival: false,
   videoUrl: '',
   images: [],
+  thumbs: {},
   videoThumbnail: '',
   supplyLeadTime: '现货 / 24-48小时发货',
   supplyMoq: '1台 / 10桶',
@@ -72,6 +73,13 @@ const INITIAL_FORM_STATE: ProductFormState = {
   supplyBaseLocation: '广州黄埔智造基地',
   supplyPackaging: '标准工业出口防护包装',
   translations: {}
+};
+
+/** Thumbnails of the pictures the form still has (removed pictures drop theirs). */
+const thumbsFor = (form: ProductFormState): Record<string, string> | undefined => {
+  const out: Record<string, string> = {};
+  for (const u of form.images) if (form.thumbs[u]) out[u] = form.thumbs[u];
+  return Object.keys(out).length ? out : undefined;
 };
 
 export const ProductManageView: React.FC<ProductManageViewProps> = ({
@@ -102,6 +110,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
   const [previewVideoModal, setPreviewVideoModal] = useState<string | null>(null);
 
   const [form, setForm] = useState<ProductFormState>(INITIAL_FORM_STATE);
+  const [thumbProgress, setThumbProgress] = useState<string | null>(null);
   // ID reserved when the "new product" form opens, so uploads land in products/{id}/... from the start.
   const [draftProductId, setDraftProductId] = useState<string>('');
   // Storage URLs uploaded during the current form session (cleaned up if they end up unused).
@@ -121,15 +130,15 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
     }
   };
 
-  const formMediaUrls = () => [...form.images, form.videoUrl, form.videoThumbnail];
+  const formMediaUrls = () => [...form.images, ...form.images.map(u => form.thumbs[u]), form.videoUrl, form.videoThumbnail];
   const [newImageUrlInput, setNewImageUrlInput] = useState('');
   const uploads = useMediaUploads(
     mediaTargetId,
-    url => {
-      sessionUploadsRef.current.push(url);
+    (url, thumbUrl) => {
+      sessionUploadsRef.current.push(url, thumbUrl);
       setForm(prev => {
         const images = [...prev.images, url].slice(0, 20);
-        return { ...prev, images, videoThumbnail: prev.videoThumbnail || images[0] || '' };
+        return { ...prev, images, thumbs: { ...prev.thumbs, [url]: thumbUrl }, videoThumbnail: prev.videoThumbnail || images[0] || '' };
       });
     },
     url => {
@@ -321,6 +330,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         videoUrl: form.videoUrl.trim() || undefined,
         videoThumbnail: form.videoThumbnail || form.images[0],
         images: form.images,
+        thumbs: thumbsFor(form),
         tierPrices: form.tierPrice ? [{ minQty: 10, priceUsd: form.tierPrice }] : [],
         supplySpecs: {
           leadTime: form.supplyLeadTime.trim() || '现货 / 24-48小时发货',
@@ -363,6 +373,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
       videoUrl: p.videoUrl || '',
       videoThumbnail: p.videoThumbnail || '',
       images: p.images || [],
+      thumbs: { ...(p.thumbs || {}) },
       supplyLeadTime: p.supplySpecs?.leadTime || '现货 / 24-48小时发货',
       supplyMoq: p.supplySpecs?.moq || '1台 / 10桶',
       supplyCapacityStatus: p.supplySpecs?.capacityStatus || 'ample',
@@ -406,6 +417,7 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         videoUrl: form.videoUrl.trim() || undefined,
         videoThumbnail: form.videoThumbnail || form.images[0],
         images: form.images,
+        thumbs: thumbsFor(form),
         tierPrices: form.tierPrice ? [{ minQty: 10, priceUsd: form.tierPrice }] : [],
         supplySpecs: {
           leadTime: form.supplyLeadTime.trim() || '现货 / 24-48小时发货',
@@ -504,6 +516,20 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
 
   const inStockCount = products.filter(p => p.inStock).length;
 
+  const missingThumbs = adminApi.countMissingThumbnails();
+  const handleMakeThumbs = async () => {
+    setThumbProgress('0/' + missingThumbs);
+    try {
+      const { made, failed } = await adminApi.generateMissingThumbnails((done, total) => setThumbProgress(`${done}/${total}`));
+      onRefreshProducts();
+      onShowToast(failed ? `已生成 ${made} 张缩略图，${failed} 张图片读取失败` : `已生成 ${made} 张缩略图，官网卡片会改用小图`);
+    } catch (err) {
+      onShowToast((err as Error).message || '生成缩略图失败');
+    } finally {
+      setThumbProgress(null);
+    }
+  };
+
   return (
     <div className="adm-page">
       <PageHeader
@@ -511,6 +537,12 @@ export const ProductManageView: React.FC<ProductManageViewProps> = ({
         description={`在售 ${inStockCount} 款，共 ${products.length} 款。这里的修改会实时同步到官网产品目录和供货信息表。`}
         actions={
           <>
+            {missingThumbs > 0 && (
+              <button onClick={() => void handleMakeThumbs()} disabled={thumbProgress !== null} className="btn btn-sm btn-outline" title="给以前上传的图片生成小图，官网卡片加载更快">
+                <ImageDown className="w-4 h-4" />
+                {thumbProgress ? `生成中 ${thumbProgress}` : `生成缩略图（${missingThumbs} 张）`}
+              </button>
+            )}
             <button onClick={() => setIsImportOpen(true)} className="btn btn-sm btn-outline">
               <Upload className="w-4 h-4" />
               批量上架

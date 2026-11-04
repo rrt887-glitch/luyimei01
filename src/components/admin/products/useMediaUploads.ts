@@ -31,7 +31,7 @@ let seq = 0;
  * Photo and video uploads for the product form: every file shows its own progress and its own
  * error, can be cancelled, and a failed file can be retried without choosing it again.
  */
-export function useMediaUploads(productId: string, onPhotoUploaded: (url: string) => void, onVideoUploaded: (url: string) => void) {
+export function useMediaUploads(productId: string, onPhotoUploaded: (url: string, thumbUrl: string) => void, onVideoUploaded: (url: string) => void) {
   const [photos, setPhotos] = useState<PhotoUpload[]>([]);
   const [video, setVideo] = useState<VideoUpload | null>(null);
   const files = useRef(new Map<string, File>());
@@ -55,8 +55,8 @@ export function useMediaUploads(productId: string, onPhotoUploaded: (url: string
       aborts.current.set(id, ctrl);
       patchPhoto(id, { status: 'uploading', percent: 0, error: undefined });
       uploadProductImage(callbacks.current.productId, file, p => patchPhoto(id, { percent: p.percent }), ctrl.signal)
-        .then(url => {
-          callbacks.current.onPhotoUploaded(url);
+        .then(({ url, thumbUrl }) => {
+          callbacks.current.onPhotoUploaded(url, thumbUrl);
           void adminApi.addAuditLog('上传商品图片', file.name, `商品 ID: ${callbacks.current.productId}｜${(file.size / 1024).toFixed(0)} KB`);
           files.current.delete(id);
           setPhotos(list => {

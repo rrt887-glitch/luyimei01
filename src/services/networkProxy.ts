@@ -280,10 +280,12 @@ export function fetchBootstrapSnapshot(forceRefresh = false): Promise<BootstrapS
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 6500);
         try {
+          // No cache-busting: the gateway answers with a short shared cache (s-maxage 10 s,
+          // stale-while-revalidate 30 s), so the CDN serves most visitors without a trip to the
+          // database; the live listener below brings anything newer.
           const res = await window.fetch(url, {
             method: 'GET',
             headers: { Accept: 'application/json' },
-            cache: 'no-store',
             signal: ctrl.signal
           });
           const isGateway = res.headers.get('x-lym-gateway') === '1';
@@ -312,12 +314,12 @@ export function fetchBootstrapSnapshot(forceRefresh = false): Promise<BootstrapS
       };
 
       if (gatewayStatus !== 'unavailable' || forceRefresh) {
-        const liveData = await fetchJsonSnapshot(`/__api/bootstrap?_t=${Date.now()}`, true);
+        const liveData = await fetchJsonSnapshot(forceRefresh ? `/__api/bootstrap?_t=${Date.now()}` : '/__api/bootstrap', true);
         if (liveData) return liveData;
       }
 
       // Fallback to build-synced static snapshot served directly by Firebase Hosting CDN
-      return fetchJsonSnapshot(`/bootstrap-snapshot.json?_t=${Date.now()}`, false);
+      return fetchJsonSnapshot('/bootstrap-snapshot.json', false);
     })();
   }
   return bootstrapPromise;

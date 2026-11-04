@@ -13,7 +13,7 @@ import {
   subscribeAllNews,
   useFactoryPhotos
 } from '../../services/siteContent';
-import { deleteUploadedMedia, describeUploadError, SiteImageArea, uploadSiteImage } from '../../services/mediaStorage';
+import { deleteUploadedMedia, describeUploadError, SiteImageArea, uploadSiteImageWithThumb } from '../../services/mediaStorage';
 import { saveSiteContactConfig, useSiteContactConfig } from '../../config/whatsapp';
 import { adminApi } from '../../services/adminApi';
 
@@ -48,11 +48,13 @@ function useSessionUploads() {
 const ImagePicker: React.FC<{
   area: SiteImageArea;
   value: string;
-  onChange: (url: string) => void;
+  /** New picture (and its small version when `withThumb`), or '' when removed. */
+  onChange: (url: string, thumbUrl?: string) => void;
   onUploaded: (url: string) => void;
   aspect?: string;
   label?: string;
-}> = ({ area, value, onChange, onUploaded, aspect = 'aspect-[4/3]', label = '上传图片' }) => {
+  withThumb?: boolean;
+}> = ({ area, value, onChange, onUploaded, aspect = 'aspect-[4/3]', label = '上传图片', withThumb = false }) => {
   const [percent, setPercent] = useState<number | null>(null);
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
@@ -61,9 +63,10 @@ const ImagePicker: React.FC<{
     setError('');
     setPercent(0);
     try {
-      const url = await uploadSiteImage(area, file, p => setPercent(p.percent));
+      const { url, thumbUrl } = await uploadSiteImageWithThumb(area, file, p => setPercent(p.percent), undefined, withThumb);
       onUploaded(url);
-      onChange(url);
+      if (thumbUrl) onUploaded(thumbUrl);
+      onChange(url, thumbUrl || undefined);
     } catch (err) {
       setError(describeUploadError(err));
     } finally {
@@ -182,7 +185,7 @@ const FactoryPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowTo
     setEditing(item);
   };
   const close = () => {
-    uploads.cleanup([original.current?.imageUrl]);
+    uploads.cleanup([original.current?.imageUrl, original.current?.thumbUrl]);
     setEditing(null);
   };
   const save = async () => {
@@ -192,7 +195,7 @@ const FactoryPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowTo
     setSaving(true);
     try {
       await saveFactoryPhoto({ ...editing, title: editing.title.trim(), desc: (editing.desc || '').trim() });
-      uploads.cleanup([editing.imageUrl], [original.current?.imageUrl]);
+      uploads.cleanup([editing.imageUrl, editing.thumbUrl], [original.current?.imageUrl, original.current?.thumbUrl]);
       void adminApi.addAuditLog(isNew ? '新增工厂图片' : '编辑工厂图片', editing.title.trim(), isNew ? '官网「工厂介绍」' : '已更新图片或文字');
       onShowToast(isNew ? '已添加，官网「工厂介绍」已更新' : '已保存');
       setEditing(null);
@@ -206,7 +209,7 @@ const FactoryPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowTo
     if (!window.confirm(`删除「${p.title}」这张图片？`)) return;
     try {
       await deleteFactoryPhoto(p.id);
-      void deleteUploadedMedia([p.imageUrl]);
+      void deleteUploadedMedia([p.imageUrl, p.thumbUrl].filter((u): u is string => !!u));
       void adminApi.addAuditLog('删除工厂图片', p.title, '官网「工厂介绍」');
       onShowToast('已删除');
     } catch (err) {
@@ -243,7 +246,7 @@ const FactoryPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowTo
           {photos.map((p, i) => (
             <div key={p.id} className="rounded-xl border border-line overflow-hidden bg-white">
               <div className="relative aspect-[4/3] bg-concrete">
-                <img src={mediaUrl(p.imageUrl)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                <img src={mediaUrl(p.thumbUrl || p.imageUrl)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
                 {i === 0 && <span className="absolute top-2 start-2 rounded-full bg-night/80 px-2 py-0.5 text-xs text-white">大图</span>}
               </div>
               <div className="p-3">
@@ -287,7 +290,7 @@ const FactoryPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowTo
       >
         {editing && (
           <>
-            <ImagePicker area="factory" value={editing.imageUrl} onChange={url => setEditing({ ...editing, imageUrl: url })} onUploaded={uploads.add} />
+            <ImagePicker area="factory" withThumb value={editing.imageUrl} onChange={(url, thumbUrl) => setEditing({ ...editing, imageUrl: url, thumbUrl: thumbUrl || '' })} onUploaded={uploads.add} />
             <div className="mt-4 grid gap-3">
               <FormField label="拍摄位置（必填）" hint="显示在图片下方，如 生产车间 / 原料仓库 / 质检实验室">
                 <input type="text" maxLength={120} value={editing.title} onChange={e => setEditing({ ...editing, title: e.target.value })} className="field field-sm" />
@@ -331,7 +334,7 @@ const NewsPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowToast
     setEditing(p ? JSON.parse(JSON.stringify(p)) : { id: newContentId('news'), title: '', summary: '', content: '', coverUrl: '', images: [], date: today(), published: true, translations: {} });
   };
   const close = () => {
-    uploads.cleanup([original.current?.coverUrl, ...(original.current?.images || [])]);
+    uploads.cleanup([original.current?.coverUrl, original.current?.coverThumbUrl, ...(original.current?.images || [])]);
     setEditing(null);
   };
   const save = async (publish?: boolean) => {
@@ -342,8 +345,8 @@ const NewsPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowToast
     setSaving(true);
     try {
       await saveNewsPost(post);
-      const keep = [post.coverUrl, ...(post.images || [])];
-      uploads.cleanup(keep, [original.current?.coverUrl, ...(original.current?.images || [])]);
+      const keep = [post.coverUrl, post.coverThumbUrl, ...(post.images || [])];
+      uploads.cleanup(keep, [original.current?.coverUrl, original.current?.coverThumbUrl, ...(original.current?.images || [])]);
       void adminApi.addAuditLog(isNew ? '发布公司新闻' : '编辑公司新闻', post.title, post.published ? `已发布｜日期 ${post.date}` : '草稿（官网不显示）');
       onShowToast(post.published ? '已保存，官网「公司新闻」已更新' : '已存为草稿');
       setEditing(null);
@@ -357,7 +360,7 @@ const NewsPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowToast
     if (!window.confirm(`删除新闻「${p.title}」？`)) return;
     try {
       await deleteNewsPost(p.id);
-      void deleteUploadedMedia([p.coverUrl, ...(p.images || [])].filter((u): u is string => !!u));
+      void deleteUploadedMedia([p.coverUrl, p.coverThumbUrl, ...(p.images || [])].filter((u): u is string => !!u));
       void adminApi.addAuditLog('删除公司新闻', p.title, `日期 ${p.date}`);
       onShowToast('已删除');
     } catch (err) {
@@ -392,7 +395,7 @@ const NewsPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowToast
           {posts.map(p => (
             <div key={p.id} className="flex items-center gap-3 py-3">
               <div className="w-20 h-14 shrink-0 overflow-hidden rounded-lg bg-concrete">
-                {p.coverUrl ? <img src={mediaUrl(p.coverUrl)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" /> : <Newspaper className="w-5 h-5 m-auto mt-4 text-slate-400" />}
+                {p.coverUrl ? <img src={mediaUrl(p.coverThumbUrl || p.coverUrl)} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" /> : <Newspaper className="w-5 h-5 m-auto mt-4 text-slate-400" />}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-night truncate">{p.title}</p>
@@ -461,7 +464,7 @@ const NewsPanel: React.FC<{ onShowToast: (m: string) => void }> = ({ onShowToast
               </FormField>
               <div>
                 <span className="field-label">封面图</span>
-                <ImagePicker area="news" aspect="aspect-[16/10]" label="上传封面" value={editing.coverUrl || ''} onChange={url => setEditing({ ...editing, coverUrl: url })} onUploaded={uploads.add} />
+                <ImagePicker area="news" withThumb aspect="aspect-[16/10]" label="上传封面" value={editing.coverUrl || ''} onChange={(url, thumbUrl) => setEditing({ ...editing, coverUrl: url, coverThumbUrl: thumbUrl || '' })} onUploaded={uploads.add} />
               </div>
               <div>
                 <span className="field-label">正文配图（选填，最多 12 张）</span>

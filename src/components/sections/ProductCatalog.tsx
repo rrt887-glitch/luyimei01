@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, Suspense, lazy } from 'react';
+import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
 import { Product, ProductFilterCategory } from '../../types';
 import { ProductIllustration } from '../common/SvgIllustrations';
@@ -264,7 +265,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                     {photos.length > 0 ? (
                       <SmartImage
                         key={photos[photoIdx]}
-                        src={photos[photoIdx]}
+                        src={thumbOf(product, photos[photoIdx])}
                         alt={name}
                         referrerPolicy="no-referrer"
                         loading="lazy"

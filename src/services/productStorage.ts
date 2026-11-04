@@ -1,7 +1,6 @@
 import { Product } from '../types';
 import { initialProducts, BUNDLED_IMAGES } from '../data/products';
-import { db, auth } from './firebase';
-import { collection, doc, setDoc, onSnapshot, getDocs, writeBatch } from 'firebase/firestore';
+import { fb, lazySub } from './fb';
 import { sanitizeProductForFirestore } from '../utils/firestoreSanitizer';
 import { fetchBootstrapSnapshot, toAccessibleMediaUrl } from './networkProxy';
 
@@ -186,6 +185,7 @@ export async function fetchFirestoreProducts(): Promise<{
 
   const firestoreTask = (async () => {
     try {
+      const { db, collection, getDocs } = await fb();
       const snapshot = await withTimeout(getDocs(collection(db, FIRESTORE_PRODUCTS_COLLECTION)), 8000);
       const cloudList: Product[] = [];
       snapshot.forEach(docSnap => {
@@ -222,54 +222,94 @@ export async function initPersistentProducts(codeProducts: Product[]): Promise<P
   return loadReadOnlyCachedProducts();
 }
 
+/** Re-checks this far back from the snapshot's newest change (covers staff computers with a wrong clock). */
+const DELTA_OVERLAP_MS = 24 * 60 * 60 * 1000;
+
+const idle = (cb: () => void) => {
+  const w = typeof window !== 'undefined' ? (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }) : null;
+  if (w?.requestIdleCallback) w.requestIdleCallback(cb, { timeout: 3000 });
+  else setTimeout(cb, 1200);
+};
+
+/**
+ * Live catalogue.
+ *  - The cached snapshot (/__api/bootstrap, shared through the CDN) paints the catalogue first.
+ *  - `deltaAfterSnapshot` (the public website): once the page is idle, the live listener asks only
+ *    for products changed since that snapshot (minus a day of overlap) instead of downloading the
+ *    whole catalogue a second time. Without a snapshot it listens to everything, as before.
+ *  - The console listens to everything at once.
+ */
 export function subscribeToFirestoreProducts(
   codeProducts: Product[],
   onUpdate: (mergedProducts: Product[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  options: { deltaAfterSnapshot?: boolean } = {}
 ): () => void {
   let cancelled = false;
-  let hasRealtimeSnapshot = false;
+  let unsub: (() => void) | null = null;
+  const cloud = new Map<string, Product>();
 
-  // Immediately hydrate from same-origin `/__api/bootstrap` so domestic mobile browsers without VPN
-  // render the latest cloud catalog without waiting for WebChannel handshake.
-  void fetchBootstrapSnapshot().then(snap => {
-    if (cancelled || hasRealtimeSnapshot || !snap || !Array.isArray(snap.products)) return;
-    const cloudProducts = snap.products.filter((d): d is Product => Boolean(d && d.id));
-    const merged = mergeCloudWithCodeDefaults(codeProducts, cloudProducts);
+  const publish = () => {
+    const merged = mergeCloudWithCodeDefaults(codeProducts, [...cloud.values()]);
     saveReadOnlyCache(merged);
     onUpdate(merged);
-  });
+  };
 
-  const colRef = collection(db, FIRESTORE_PRODUCTS_COLLECTION);
-  const unsub = onSnapshot(
-    colRef,
-    snapshot => {
-      hasRealtimeSnapshot = true;
-      const cloudProducts: Product[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data() as Product;
-        if (data && data.id) {
-          cloudProducts.push(data);
-        }
-      });
+  const listen = (sinceIso?: string) => {
+    if (cancelled) return;
+    // The console is waiting for the list; the website already shows the snapshot.
+    unsub = lazySub(({ db, collection, onSnapshot, query, where }) => {
+    const colRef = collection(db, FIRESTORE_PRODUCTS_COLLECTION);
+    const source = sinceIso ? query(colRef, where('updatedAt', '>=', sinceIso)) : colRef;
+    let first = true;
+    return onSnapshot(
+      source,
+      snapshot => {
+        if (!sinceIso && first) cloud.clear();
+        first = false;
+        snapshot.docChanges().forEach(change => {
+          const data = change.doc.data() as Product;
+          if (change.type === 'removed') {
+            // Leaving a "changed since" query is not a deletion (products are tombstoned).
+            if (!sinceIso) cloud.delete(change.doc.id);
+          } else if (data && data.id) {
+            cloud.set(data.id, data);
+          }
+        });
+        publish();
+      },
+      error => {
+        console.warn('Real-time products listener error:', error);
+        onError?.(error);
+      }
+    );
+    }, Boolean(options.deltaAfterSnapshot));
+  };
 
-      const merged = mergeCloudWithCodeDefaults(codeProducts, cloudProducts);
-      saveReadOnlyCache(merged);
-      onUpdate(merged);
-    },
-    error => {
-      console.warn('Real-time products listener error:', error);
-      onError?.(error);
+  // Paint from the shared snapshot first (fast on every network, including mainland China).
+  void fetchBootstrapSnapshot().then(snap => {
+    if (cancelled) return;
+    const list = snap && Array.isArray(snap.products) ? snap.products.filter((d): d is Product => Boolean(d && d.id)) : null;
+    if (list && cloud.size === 0) {
+      list.forEach(p => cloud.set(p.id, p));
+      publish();
     }
-  );
+    if (!options.deltaAfterSnapshot) return;
+    if (!list) return listen();
+    const newest = list.reduce((m, p) => (p.updatedAt && p.updatedAt > m ? p.updatedAt : m), '');
+    const since = newest ? new Date(Math.max(0, Date.parse(newest) - DELTA_OVERLAP_MS)).toISOString() : '';
+    idle(() => listen(since || undefined));
+  });
+  if (!options.deltaAfterSnapshot) listen();
 
   return () => {
     cancelled = true;
-    unsub();
+    unsub?.();
   };
 }
 
 export async function persistProductUpdate(product: Product): Promise<void> {
+  const { auth, db, doc, setDoc, writeBatch } = await fb();
   if (!auth.currentUser) {
     throw new Error('未检测到有效的管理员或员工云端登录凭证，无法保存商品至云端数据库。');
   }
@@ -293,6 +333,7 @@ export async function persistProductUpdate(product: Product): Promise<void> {
  * number written so far. Used by the spreadsheet import.
  */
 export async function persistProductsBatch(products: Product[], onProgress?: (done: number) => void): Promise<void> {
+  const { auth, db, doc, setDoc, writeBatch } = await fb();
   if (!auth.currentUser) {
     throw new Error('未检测到有效的管理员云端登录凭证，无法保存商品至云端数据库。');
   }
@@ -310,6 +351,7 @@ export async function persistProductsBatch(products: Product[], onProgress?: (do
 }
 
 export async function persistProductDelete(id: string): Promise<void> {
+  const { auth, db, doc, setDoc, writeBatch } = await fb();
   if (!auth.currentUser) {
     throw new Error('未检测到有效的管理员云端登录凭证，无法执行云端商品删除。');
   }

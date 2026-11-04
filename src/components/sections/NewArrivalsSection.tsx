@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { thumbOf } from '../../utils/productImages';
 import { useI18n } from '../../i18n';
 import { Product } from '../../types';
 import { ChevronRight, MessageCircle } from 'lucide-react';
@@ -59,7 +60,7 @@ export const NewArrivalsSection: React.FC<Props> = ({ products, onOpenDetail, on
                 >
                   {photo ? (
                     <SmartImage
-                      src={photo}
+                      src={thumbOf(product, photo)}
                       alt={t.name}
                       loading="lazy"
                       referrerPolicy="no-referrer"

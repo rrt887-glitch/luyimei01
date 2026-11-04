@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { thumbOf } from '../../utils/productImages';
 import { X, Loader2, CheckCircle2, MessageCircle, AlertTriangle, UserRound, Clock } from 'lucide-react';
 import { useI18n } from '../../i18n';
 import { zh } from '../../i18n/locales/zh';
@@ -137,7 +138,7 @@ export const ProductInquiryModal: React.FC<ProductInquiryModalProps> = ({ produc
         {/* Product being asked about */}
         <div className="flex items-center gap-3.5 border-b border-line px-6 py-4 pe-14">
           <div className="w-14 h-14 shrink-0 overflow-hidden rounded-lg bg-concrete">
-            {product.images?.[0] && <img src={product.images[0]} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />}
+            {product.images?.[0] && <img src={thumbOf(product, product.images[0])} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />}
           </div>
           <div className="min-w-0">
             <p className="text-xs text-slate-500">{t.title}</p>

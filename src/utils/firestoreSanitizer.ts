@@ -91,7 +91,8 @@ export const PRODUCT_ALLOWED_KEYS = [
   'translations',
   'userModified',
   'updatedAt',
-  'newArrivalAt'
+  'newArrivalAt',
+  'thumbs'
 ] as const;
 
 export const INQUIRY_ALLOWED_KEYS = [
@@ -224,13 +225,14 @@ export const SITE_CONTACT_CONFIG_ALLOWED_KEYS = [
   'updatedAt'
 ] as const;
 
-export const FACTORY_PHOTO_ALLOWED_KEYS = ['id', 'imageUrl', 'title', 'desc', 'translations', 'order', 'createdAt', 'updatedAt'] as const;
+export const FACTORY_PHOTO_ALLOWED_KEYS = ['id', 'imageUrl', 'thumbUrl', 'title', 'desc', 'translations', 'order', 'createdAt', 'updatedAt'] as const;
 export const NEWS_POST_ALLOWED_KEYS = [
   'id',
   'title',
   'summary',
   'content',
   'coverUrl',
+  'coverThumbUrl',
   'images',
   'date',
   'published',
@@ -261,6 +263,8 @@ function cleanContentTranslations(t: unknown): Record<string, Record<string, str
 export function sanitizeFactoryPhotoForFirestore(photo: Record<string, any>): Record<string, any> {
   const cleaned = pickAllowedFields({ ...photo, translations: cleanContentTranslations(photo.translations) }, FACTORY_PHOTO_ALLOWED_KEYS);
   if (typeof cleaned.imageUrl === 'string') cleaned.imageUrl = toCanonicalMedia(cleaned.imageUrl);
+  if (typeof cleaned.thumbUrl === 'string') cleaned.thumbUrl = toCanonicalMedia(cleaned.thumbUrl);
+  if (!cleaned.thumbUrl) delete cleaned.thumbUrl;
   if (typeof cleaned.desc === 'string' && !cleaned.desc.trim()) delete cleaned.desc;
   return cleaned;
 }
@@ -269,6 +273,8 @@ export function sanitizeNewsPostForFirestore(post: Record<string, any>): Record<
   const cleaned = pickAllowedFields({ ...post, translations: cleanContentTranslations(post.translations) }, NEWS_POST_ALLOWED_KEYS);
   if (typeof cleaned.coverUrl === 'string') cleaned.coverUrl = toCanonicalMedia(cleaned.coverUrl);
   if (typeof cleaned.coverUrl === 'string' && !cleaned.coverUrl) delete cleaned.coverUrl;
+  if (typeof cleaned.coverThumbUrl === 'string') cleaned.coverThumbUrl = toCanonicalMedia(cleaned.coverThumbUrl);
+  if (!cleaned.coverUrl || !cleaned.coverThumbUrl) delete cleaned.coverThumbUrl;
   if (Array.isArray(cleaned.images)) cleaned.images = cleaned.images.filter((u: unknown) => typeof u === 'string' && u).map(toCanonicalMedia);
   if (typeof cleaned.summary === 'string' && !cleaned.summary.trim()) delete cleaned.summary;
   return cleaned;
@@ -288,6 +294,17 @@ export function sanitizeProductForFirestore(product: Record<string, any>): Recor
   }
   if (typeof cleaned.videoThumbnail === 'string') {
     cleaned.videoThumbnail = toCanonical(cleaned.videoThumbnail);
+  }
+  // Thumbnails: canonical URLs, only for pictures the product still has.
+  if (cleaned.thumbs && typeof cleaned.thumbs === 'object') {
+    const keep = new Set(Array.isArray(cleaned.images) ? cleaned.images : []);
+    const thumbs: Record<string, string> = {};
+    for (const [full, small] of Object.entries(cleaned.thumbs as Record<string, unknown>)) {
+      const key = toCanonical(full);
+      if (typeof small === 'string' && small && keep.has(key)) thumbs[key] = toCanonical(small);
+    }
+    if (Object.keys(thumbs).length) cleaned.thumbs = thumbs;
+    else delete cleaned.thumbs;
   }
   if (typeof cleaned.customName === 'string' && cleaned.customName.trim() === '') {
     delete cleaned.customName;

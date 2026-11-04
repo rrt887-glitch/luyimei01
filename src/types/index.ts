@@ -50,6 +50,8 @@ export interface Product {
   videoUrl?: string;
   videoThumbnail?: string;
   images?: string[];
+  /** Small versions of `images` for cards and lists: full image URL → thumbnail URL. */
+  thumbs?: Record<string, string>;
   mediaType?: 'image' | 'video' | 'mixed';
   tierPrices?: { minQty: number; priceUsd: string }[];
   supplySpecs?: SupplyCollaborationSpecs;
@@ -109,6 +111,8 @@ export type ContentTranslations<K extends string> = Partial<Record<'en' | 'ar' |
 export interface FactoryPhoto {
   id: string;
   imageUrl: string;
+  /** Small version for the photo grid. */
+  thumbUrl?: string;
   /** Where the picture was taken, e.g. 生产车间 / 原料仓库. */
   title: string;
   desc?: string;
@@ -127,6 +131,8 @@ export interface NewsPost {
   /** Plain text; blank lines separate paragraphs. */
   content: string;
   coverUrl?: string;
+  /** Small version of the cover for news cards. */
+  coverThumbUrl?: string;
   /** More pictures shown under the article. */
   images?: string[];
   /** Date shown on the website, YYYY-MM-DD. */

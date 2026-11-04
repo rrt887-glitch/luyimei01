@@ -209,7 +209,7 @@ service cloud.firestore {
           'specKey', 'inStock', 'isDeleted', 'year', 'brand', 'condition', 'status',
           'customName', 'customSpec', 'customDesc', 'featured', 'videoUrl', 'videoThumbnail',
           'images', 'unit', 'tierPrices', 'supplySpecs', 'translations', 'userModified', 'updatedAt',
-          'newArrivalAt'
+          'newArrivalAt', 'thumbs'
         ]) &&
         (
           (
@@ -241,6 +241,7 @@ service cloud.firestore {
         (!('customDesc' in data) || (data.customDesc is string && data.customDesc.size() <= 5000)) &&
         (!('featured' in data) || data.featured is bool) &&
         (!('newArrivalAt' in data) || (data.newArrivalAt is string && data.newArrivalAt.size() <= 64)) &&
+        (!('thumbs' in data) || (data.thumbs is map && data.thumbs.size() <= 20)) &&
         (!('videoUrl' in data) || (data.videoUrl is string && data.videoUrl.size() <= 2000 && !data.videoUrl.matches('^data:.*'))) &&
         (!('videoThumbnail' in data) || (data.videoThumbnail is string && data.videoThumbnail.size() <= 500000)) &&
         (!('images' in data) || (data.images is list && data.images.size() <= 20)) &&
@@ -398,7 +399,8 @@ service cloud.firestore {
 
     function isValidFactoryPhoto(data) {
       return hasRequiredFields(['id', 'imageUrl', 'title', 'order']) &&
-        hasOnlyAllowedFields(['id', 'imageUrl', 'title', 'desc', 'translations', 'order', 'createdAt', 'updatedAt']) &&
+        hasOnlyAllowedFields(['id', 'imageUrl', 'thumbUrl', 'title', 'desc', 'translations', 'order', 'createdAt', 'updatedAt']) &&
+        (!('thumbUrl' in data) || (data.thumbUrl is string && data.thumbUrl.size() <= 1000 && data.thumbUrl.matches('^https://.*'))) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.imageUrl is string && data.imageUrl.size() <= 1000 && data.imageUrl.matches('^https://.*') &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
@@ -411,7 +413,8 @@ service cloud.firestore {
 
     function isValidNewsPost(data) {
       return hasRequiredFields(['id', 'title', 'content', 'date', 'published']) &&
-        hasOnlyAllowedFields(['id', 'title', 'summary', 'content', 'coverUrl', 'images', 'date', 'published', 'translations', 'createdAt', 'updatedAt']) &&
+        hasOnlyAllowedFields(['id', 'title', 'summary', 'content', 'coverUrl', 'coverThumbUrl', 'images', 'date', 'published', 'translations', 'createdAt', 'updatedAt']) &&
+        (!('coverThumbUrl' in data) || (data.coverThumbUrl is string && data.coverThumbUrl.size() <= 1000 && data.coverThumbUrl.matches('^https://.*'))) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
         data.content is string && data.content.size() <= 20000 &&

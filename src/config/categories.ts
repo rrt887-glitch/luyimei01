@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { fb, lazySub } from '../services/fb';
 import { fetchBootstrapSnapshot } from '../services/networkProxy';
 import { SupportedLanguage } from '../types';
 import { sanitizeCategoryConfigForFirestore } from '../utils/firestoreSanitizer';
@@ -114,8 +113,9 @@ function ensureSubscribed() {
     }
   });
 
-  try {
-    onSnapshot(
+  lazySub(({ db, doc, onSnapshot }) => {
+    try {
+    return onSnapshot(
       doc(db, 'site_config', 'categories'),
       snap => {
         receivedRealtime = true;
@@ -127,10 +127,11 @@ function ensureSubscribed() {
         subscribed = false;
       }
     );
-  } catch (err) {
-    console.warn('Category subscription failed:', err);
-    subscribed = false;
-  }
+    } catch (err) {
+      console.warn('Category subscription failed:', err);
+      subscribed = false;
+    }
+  });
 }
 
 /** Live category list shared by the website and the console. */
@@ -158,6 +159,7 @@ export async function saveProductCategories(list: ProductCategoryDef[]): Promise
   const clean = cleanList(list) || [];
   if (clean.length === 0) throw new Error('至少要保留一个分类');
   if (clean.length > MAX_CATEGORIES) throw new Error(`分类最多 ${MAX_CATEGORIES} 个`);
+  const { db, doc, setDoc } = await fb();
   await setDoc(
     doc(db, 'site_config', 'categories'),
     sanitizeCategoryConfigForFirestore({ items: clean, updatedAt: new Date().toISOString() })

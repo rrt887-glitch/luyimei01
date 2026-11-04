@@ -65,7 +65,7 @@ export const FactoryPage: React.FC = () => {
                 aria-label={title}
               >
                 <SmartImage
-                  src={mediaUrl(p.imageUrl)}
+                  src={mediaUrl(big ? p.imageUrl : p.thumbUrl || p.imageUrl)}
                   alt={title}
                   loading="lazy"
                   referrerPolicy="no-referrer"
