@@ -2,9 +2,11 @@ import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../../services/firebase';
 import { Product } from '../../types';
-import { AdminLead, AuditLogItem, CustomerProfile, StaffAccount } from '../../types/admin';
+import { AdminLead, AuditLogItem, CustomerProfile, QuotationSheet, StaffAccount } from '../../types/admin';
 import { adminApi } from '../../services/adminApi';
-import { AdminTab, isAdminTabAllowed } from '../../config/adminTabs';
+import { AdminTab, defaultAdminTab, isAdminTabAllowed } from '../../config/adminTabs';
+import { canSell } from '../../config/staffRoles';
+import { customersFromOwnLeads } from '../../services/admin/repCustomers';
 import { AdminLayout } from './AdminLayout';
 import { Toast } from '../common/Toast';
 
@@ -16,6 +18,7 @@ const QuotationView = lazy(() => import('./QuotationView').then(m => ({ default:
 const TeamRbacView = lazy(() => import('./TeamRbacView').then(m => ({ default: m.TeamRbacView })));
 const AuditLogsView = lazy(() => import('./AuditLogsView').then(m => ({ default: m.AuditLogsView })));
 const SiteContentView = lazy(() => import('./SiteContentView').then(m => ({ default: m.SiteContentView })));
+const MyAccountModal = lazy(() => import('./MyAccountModal').then(m => ({ default: m.MyAccountModal })));
 
 const TabFallback: React.FC = () => (
   <div className="flex items-center justify-center gap-3 py-24 text-sm text-slate-500">
@@ -49,7 +52,9 @@ interface AdminConsoleProps {
  * so none of this reaches visitors' browsers.
  */
 const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProductsChange, onBackToPortal, onSessionEnded, toastMessage, showToast }) => {
-  const [tab, setTab] = useState<AdminTab>('dashboard');
+  const [tab, setTab] = useState<AdminTab>(() => defaultAdminTab((adminApi.getCurrentStaff() || session).role));
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [ownQuotations, setOwnQuotations] = useState<QuotationSheet[]>([]);
   const [leads, setLeads] = useState<AdminLead[]>([]);
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [staff, setStaff] = useState<StaffAccount[]>([]);
@@ -126,16 +131,21 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
       },
       () => setIsConnected(false)
     );
-    const unsubLeads = adminApi.subscribeToLeads(
-      list => {
-        setLeads(list);
-        setLastSyncTime(clock());
-      },
-      err => {
-        console.warn('Real-time leads sync warning:', err);
-        recheckSession(err);
-      }
-    );
+    // Operators never work with leads (firestore.rules refuse them): no listener.
+    const unsubLeads = canSell(role)
+      ? adminApi.subscribeToLeads(
+          list => {
+            setLeads(list);
+            setLastSyncTime(clock());
+          },
+          err => {
+            console.warn('Real-time leads sync warning:', err);
+            recheckSession(err);
+          }
+        )
+      : () => {};
+    // A sales rep's 客户档案 is built from their own leads and quotations.
+    const unsubQuotations = role === 'sales_rep' ? adminApi.subscribeToQuotations(setOwnQuotations) : () => {};
     const unsubStaff = adminApi.subscribeToStaff(
       list => {
         setStaff(list);
@@ -180,6 +190,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
       unsubStaff();
       unsubCustomers();
       unsubAudit();
+      unsubQuotations();
     };
   }, [uid, role, refresh, onProductsChange, updateCurrentStaff, endSession, recheckSession]);
 
@@ -207,7 +218,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
 
   // Never render a tab the current role is not allowed to use (e.g. after a role change).
   useEffect(() => {
-    if (!isAdminTabAllowed(tab, role)) setTab('dashboard');
+    if (!isAdminTabAllowed(tab, role)) setTab(defaultAdminTab(role));
   }, [tab, role]);
 
   const manualSync = useCallback(async () => {
@@ -248,6 +259,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
       allStaff={staff}
       pendingLeadsCount={leads.filter(l => l.stage === 'new' && !l.assignedStaffId).length}
       onLogout={logout}
+      onOpenAccount={() => setAccountOpen(true)}
     >
       <Suspense fallback={<TabFallback />}>
         {tab === 'dashboard' && (
@@ -267,7 +279,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
         {tab === 'leads' && (
           <LeadsCrmView
             leads={leads}
-            staffList={staff}
+            staffList={staff.filter(s => canSell(s.role))}
             onRefreshLeads={refresh}
             onShowToast={showToast}
             initialOpenLeadId={leadIdForModal}
@@ -279,7 +291,18 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
             }}
           />
         )}
-        {tab === 'customers' && <CustomerView customers={customers} leads={leads} onRefreshCustomers={refresh} onShowToast={showToast} />}
+        {tab === 'customers' &&
+          (role === 'sales_rep' ? (
+            <CustomerView
+              customers={customersFromOwnLeads(leads, ownQuotations, currentStaff.id)}
+              leads={leads.filter(l => l.assignedStaffId === currentStaff.id)}
+              onRefreshCustomers={refresh}
+              onShowToast={showToast}
+              readOnly
+            />
+          ) : (
+            <CustomerView customers={customers} leads={leads} onRefreshCustomers={refresh} onShowToast={showToast} />
+          ))}
         {tab === 'quotation' && (
           <QuotationView
             products={products}
@@ -293,6 +316,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ session, products, onProduc
         {tab === 'team' && <TeamRbacView staffList={staff} currentStaff={currentStaff} leads={leads} onRefreshStaff={refresh} onShowToast={showToast} />}
         {tab === 'audit' && <AuditLogsView logs={auditLogs} />}
         {tab === 'content' && <SiteContentView onShowToast={showToast} />}
+        {accountOpen && <MyAccountModal staff={currentStaff} onClose={() => setAccountOpen(false)} onShowToast={showToast} />}
       </Suspense>
       <Toast message={toastMessage} />
     </AdminLayout>

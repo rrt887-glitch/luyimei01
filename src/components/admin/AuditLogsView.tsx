@@ -1,3 +1,4 @@
+import { roleLabel } from '../../config/staffRoles';
 import React, { useMemo, useState } from 'react';
 import { AuditLogItem } from '../../types/admin';
 import { History, Search, Download, Loader2, ChevronDown, ShieldCheck } from 'lucide-react';
@@ -92,7 +93,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs }) => {
           widths: [18, 12, 10, 18, 30, 80],
           rows: [
             ['时间', '操作人', '角色', '操作', '对象', '详情'],
-            ...filtered.map(l => [formatDateTime(l.timestamp), l.operator, l.operatorRole === 'super_admin' ? '超级管理员' : '销售', l.action, l.target, l.details])
+            ...filtered.map(l => [formatDateTime(l.timestamp), l.operator, roleLabel(l.operatorRole), l.action, l.target, l.details])
           ]
         }
       ]),
@@ -200,7 +201,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs }) => {
                       <Avatar name={log.operator} size={26} tone={log.operatorRole === 'super_admin' ? 'night' : 'sky'} />
                       <div className="min-w-0">
                         <div className="font-semibold text-night truncate">{log.operator}</div>
-                        <div className="text-xs text-slate-400">{log.operatorRole === 'super_admin' ? '超级管理员' : '销售'}</div>
+                        <div className="text-xs text-slate-400">{roleLabel(log.operatorRole)}</div>
                       </div>
                     </div>
                   </td>

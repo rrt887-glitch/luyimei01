@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  UserCog,
   LayoutDashboard,
   LayoutTemplate,
   Package,
@@ -19,6 +20,7 @@ import { Avatar } from './AdminUI';
 import { useDialog } from '../../hooks/useDialog';
 
 import { AdminTab, getAllowedAdminTabs } from '../../config/adminTabs';
+import { ROLE_LABEL } from '../../config/staffRoles';
 export type { AdminTab };
 
 interface AdminLayoutProps {
@@ -31,6 +33,8 @@ interface AdminLayoutProps {
   pendingLeadsCount?: number;
   onLogout: () => void;
   children: React.ReactNode;
+  /** Opens「我的账号」(name, login phone, password). */
+  onOpenAccount: () => void;
 }
 
 type NavItem = { id: AdminTab; label: string; icon: React.ElementType };
@@ -63,6 +67,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   currentStaff,
   pendingLeadsCount = 0,
   onLogout,
+  onOpenAccount,
   children
 }) => {
   const [navOpen, setNavOpen] = useState(false);
@@ -71,12 +76,10 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
   // Sales reps see only their own account on the team page, so it is named accordingly.
   const groups = NAV_GROUPS.map(g => ({
     ...g,
-    items: g.items
-      .filter(i => allowedTabs.includes(i.id))
-      .map(i => (i.id === 'team' && currentStaff.role !== 'super_admin' ? { ...i, label: '我的账号' } : i))
+    items: g.items.filter(i => allowedTabs.includes(i.id))
   })).filter(g => g.items.length > 0);
   const currentLabel = groups.flatMap(g => g.items).find(i => i.id === currentTab)?.label || '';
-  const roleLabel = currentStaff.role === 'super_admin' ? '超级管理员' : '销售代表';
+  const roleText = ROLE_LABEL[currentStaff.role] || '员工';
 
   useEffect(() => {
     document.title = `${currentLabel} · 路易美中台`;
@@ -132,13 +135,22 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({
       </nav>
 
       <div className="border-t border-white/10 p-3">
-        <div className="flex items-center gap-3 px-2 py-2">
+        <button
+          type="button"
+          onClick={() => {
+            setNavOpen(false);
+            onOpenAccount();
+          }}
+          className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-start hover:bg-white/5"
+          title="修改姓名、登录手机号和密码"
+        >
           <Avatar name={currentStaff.name} size={34} />
           <div className="min-w-0 flex-1 leading-tight">
             <div className="text-sm font-semibold truncate">{currentStaff.name}</div>
-            <div className="text-xs text-white/50 truncate">{roleLabel}</div>
+            <div className="text-xs text-white/50 truncate">{roleText} · 我的账号</div>
           </div>
-        </div>
+          <UserCog className="w-4 h-4 text-white/50 shrink-0" />
+        </button>
         <div className="mt-1 grid grid-cols-2 gap-1">
           <button
             onClick={onBackToPortal}

@@ -489,7 +489,8 @@
           "type": "string",
           "enum": [
             "super_admin",
-            "sales_rep"
+            "sales_rep",
+            "operator"
           ],
           "description": "Role of the operator."
         },
@@ -559,7 +560,8 @@
           "type": "string",
           "enum": [
             "super_admin",
-            "sales_rep"
+            "sales_rep",
+            "operator"
           ],
           "description": "RBAC permission role."
         },

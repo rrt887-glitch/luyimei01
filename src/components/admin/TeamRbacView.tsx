@@ -5,6 +5,9 @@ import { generateStrongPassword } from '../../utils/crypto';
 import { UserPlus, KeyRound, CheckCircle, X, Trash2, Sparkles, Eye, EyeOff, Copy, Check, Phone, Mail } from 'lucide-react';
 import { PageHeader, Chip, Modal, FormField, Avatar } from './AdminUI';
 import { formatRelativeTime, formatUsd } from '../../utils/format';
+import { ROLE_DESCRIPTION, ROLE_LABEL, STAFF_ROLES } from '../../config/staffRoles';
+
+const ROLE_TONE: Record<StaffRole, 'violet' | 'sky' | 'amber'> = { super_admin: 'violet', sales_rep: 'sky', operator: 'amber' };
 
 interface TeamRbacViewProps {
   staffList: StaffAccount[];
@@ -241,18 +244,19 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
   const activeStaff = staffList.filter(s => s.status === 'active').length;
   const isAllSelected = selectedStaffIds.size > 0 && selectedStaffIds.size === staffList.length;
 
-  const ROLE_INFO = [
-    {
-      role: '超级管理员',
-      tone: 'violet' as const,
-      can: '全部页面；指派线索、管理员工、商品与官网联系方式、查看客户档案和操作日志。'
-    },
-    {
-      role: '销售代表',
-      tone: 'sky' as const,
-      can: '经营概览、商机线索（公海和自己名下，可认领公海线索）、报价单（自己开的）、我的账号。看不到员工名单、同事的线索、客户档案和买家资料。'
+  const ROLE_INFO = STAFF_ROLES.map(r => ({ role: ROLE_LABEL[r], tone: ROLE_TONE[r], can: ROLE_DESCRIPTION[r] }));
+
+  const handleRoleChange = async (member: StaffAccount, role: StaffRole) => {
+    if (role === member.role) return;
+    if (role === 'operator' && leads.some(l => l.assignedStaffId === member.id) && !window.confirm(`改为运营后，${member.name} 名下的线索会退回公海。继续？`)) return;
+    try {
+      await adminApi.updateStaffRole(member.id, role);
+      onRefreshStaff();
+      onShowToast(`${member.name} 已改为${ROLE_LABEL[role]}`);
+    } catch (err) {
+      onShowToast((err as Error).message || '修改角色失败');
     }
-  ];
+  };
 
   return (
     <div className="adm-page">
@@ -302,9 +306,22 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
                     {isSelf && <span className="text-xs text-sky-deep font-medium">（你）</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-2 flex-wrap">
-                    <Chip tone={member.role === 'super_admin' ? 'violet' : 'sky'} dot={false}>
-                      {member.role === 'super_admin' ? '超级管理员' : '销售代表'}
-                    </Chip>
+                    {isSuperAdmin && !isSelf ? (
+                      <select
+                        value={member.role}
+                        onChange={e => void handleRoleChange(member, e.target.value as StaffRole)}
+                        className="field field-sm !h-7 !py-0 w-auto text-xs"
+                        aria-label={`${member.name} 的角色`}
+                      >
+                        {STAFF_ROLES.map(r => (
+                          <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Chip tone={ROLE_TONE[member.role]} dot={false}>
+                        {ROLE_LABEL[member.role]}
+                      </Chip>
+                    )}
                     <Chip tone={active ? 'emerald' : 'slate'}>{active ? '在职' : '已停用'}</Chip>
                   </div>
                 </div>
@@ -390,7 +407,7 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
 
       <section className="panel mt-6">
         <div className="panel-head">
-          <h2 className="panel-title">两种角色能做什么</h2>
+          <h2 className="panel-title">三种角色能做什么</h2>
         </div>
         <dl className="divide-y divide-[#edf1f4]">
           {ROLE_INFO.map(r => (
@@ -468,13 +485,13 @@ export const TeamRbacView: React.FC<TeamRbacViewProps> = ({
           </FormField>
           <FormField label="角色">
             <div className="segmented w-full" role="group" aria-label="角色">
-              <button type="button" className="flex-1" aria-pressed={newRole === 'sales_rep'} onClick={() => setNewRole('sales_rep')}>
-                销售代表
-              </button>
-              <button type="button" className="flex-1" aria-pressed={newRole === 'super_admin'} onClick={() => setNewRole('super_admin')}>
-                超级管理员
-              </button>
+              {(['sales_rep', 'operator', 'super_admin'] as StaffRole[]).map(r => (
+                <button key={r} type="button" className="flex-1" aria-pressed={newRole === r} onClick={() => setNewRole(r)}>
+                  {ROLE_LABEL[r]}
+                </button>
+              ))}
             </div>
+            <span className="block mt-1 text-[12.5px] text-slate-500">{ROLE_DESCRIPTION[newRole]}</span>
           </FormField>
         </form>
       </Modal>

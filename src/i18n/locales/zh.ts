@@ -366,6 +366,8 @@ export const zh = {
     navNews: '公司新闻',
     factoryEmpty: '工厂图片即将更新，欢迎联系我们预约参观或索取工厂视频。',
     newsEmpty: '公司新闻即将更新。',
+    backToNews: '返回新闻列表',
+    newsMissing: '这篇新闻不存在或已下架。',
     newTitle: '新款推荐',
     newSubtitle: '最新上架的产品，点开查看详情或直接询价。',
     newBadge: '新款',

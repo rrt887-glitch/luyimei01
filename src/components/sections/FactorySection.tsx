@@ -5,13 +5,21 @@ import { SmartImage } from '../common/SmartImage';
 import { contentText, mediaUrl, useFactoryPhotos } from '../../services/siteContent';
 
 /**
- * "工厂介绍": photos of the factory uploaded in the console, each with the place it shows.
- * The first photo is large; a click opens any photo full screen. Hidden while there are none.
+ * 工厂介绍 page (#/factory): photos of the factory uploaded in the console, each with the place it
+ * shows. The first photo is large; a click opens any photo full screen.
  */
-export const FactorySection: React.FC = () => {
+export const FactoryPage: React.FC = () => {
   const { d, lang } = useI18n();
   const photos = useFactoryPhotos();
   const [open, setOpen] = useState<number | null>(null);
+
+  useEffect(() => {
+    const prev = document.title;
+    document.title = `${d.site.factoryTitle} · ${d.nav.brandName}`;
+    return () => {
+      document.title = prev;
+    };
+  }, [d]);
 
   const step = useCallback((delta: number) => setOpen(i => (i === null ? i : (i + delta + photos.length) % photos.length)), [photos.length]);
 
@@ -30,10 +38,10 @@ export const FactorySection: React.FC = () => {
   const current = open !== null ? photos[open] : null;
 
   return (
-    <section id="factory" className="bg-concrete py-16 md:py-24">
+    <section id="factory" className="bg-concrete pt-12 pb-20 md:pt-16 md:pb-24 min-h-[70vh]">
       <div className="page-wrap">
         <div className="grid gap-4 md:grid-cols-[1fr_minmax(0,26rem)] md:items-end mb-8">
-          <h2 className="section-title">{d.site.factoryTitle}</h2>
+          <h1 className="section-title">{d.site.factoryTitle}</h1>
           <p className="text-[15px] text-slate-600 leading-relaxed">{d.site.factorySubtitle}</p>
         </div>
 

@@ -20,8 +20,9 @@ import { ServicesSection } from './components/sections/ServicesSection';
 import { ContactSection } from './components/sections/ContactSection';
 import { RecordsTable } from './components/sections/RecordsTable';
 import { NewArrivalsSection, pickNewArrivals } from './components/sections/NewArrivalsSection';
-import { FactorySection } from './components/sections/FactorySection';
-import { NewsSection } from './components/sections/NewsSection';
+import { FactoryPage } from './components/sections/FactorySection';
+import { NewsPage } from './components/sections/NewsSection';
+import { useHashRoute } from './hooks/useHashRoute';
 import { FloatingContact } from './components/layout/FloatingContact';
 import { Footer } from './components/layout/Footer';
 import { Toast } from './components/common/Toast';
@@ -47,6 +48,7 @@ const ConsoleFallback: React.FC = () => (
 
 const MainApp: React.FC = () => {
   const { d } = useI18n();
+  const route = useHashRoute();
   const dictRef = useRef(d);
   dictRef.current = d;
   const [viewMode, setViewMode] = useState<'portal' | 'admin'>('portal');
@@ -56,6 +58,8 @@ const MainApp: React.FC = () => {
     // Built-in catalogue only on a first visit (no cache yet); an empty cached list stays empty.
     return loadReadOnlyCachedProducts().filter(p => !p.isDeleted);
   });
+  // Products in the New arrivals row are not repeated in the catalogue's default view.
+  const newArrivalIds = React.useMemo(() => new Set(pickNewArrivals(products).map(p => p.id)), [products]);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<ProductFilterCategory>('all');
   const [onlyFavorites, setOnlyFavorites] = useState(false);
@@ -167,7 +171,11 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const scrollToProducts = () => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' });
+  // From the factory / news pages, going back to the home page's catalogue (the router scrolls there).
+  const scrollToProducts = () => {
+    if (route.page !== 'home') window.location.hash = '#products';
+    else document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const handleToggleOnlyFavorites = () => {
     const next = !onlyFavorites;
@@ -221,9 +229,14 @@ const MainApp: React.FC = () => {
         onSelectNavCategory={handleSelectNavCategory}
         adminStaffSession={adminSession}
         hasNewArrivals={pickNewArrivals(products).length > 0}
+        currentPage={route.page}
       />
 
       <main className="flex-1">
+        {route.page === 'factory' && <FactoryPage />}
+        {route.page === 'news' && <NewsPage articleId={route.articleId} />}
+        {route.page === 'home' && (
+          <>
         <HeroSection />
         <NewArrivalsSection products={products} onOpenDetail={setDetailProduct} onInquire={handleInquireProduct} />
         <ProductCatalog
@@ -237,13 +250,14 @@ const MainApp: React.FC = () => {
           onSelectCategory={setActiveCategory}
           onlyFavorites={onlyFavorites}
           onClearOnlyFavorites={() => setOnlyFavorites(false)}
+          hideIds={newArrivalIds}
         />
         <EngineeringSection />
-        <FactorySection />
         <ServicesSection onSelectCategory={handleSelectNavCategory} />
-        <NewsSection />
         <ContactSection onInquirySubmitted={showToast} />
         <RecordsTable products={products} onOpenDetail={setDetailProduct} />
+          </>
+        )}
       </main>
 
       <Footer onSelectCategory={handleSelectNavCategory} onOpenAdminConsole={handleOpenAdmin} />

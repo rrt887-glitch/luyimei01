@@ -1,4 +1,5 @@
 import { AuditLogItem, StaffAccount, StaffRole } from '../../types/admin';
+import { normalizeRole } from '../../config/staffRoles';
 import { db, auth } from '../firebase';
 import { collection, doc, setDoc, onSnapshot, query, orderBy, limit, where, getDocs } from 'firebase/firestore';
 import { LISTENER_LIMITS } from '../../config/appConfig';
@@ -13,7 +14,7 @@ export function sanitizeAuditLogFromCloud(
 ): AuditLogItem {
   const id = String(fallbackId || raw.id || '').trim();
   const roleVal = raw.operatorRole || raw.role;
-  const operatorRole: StaffRole = roleVal === 'super_admin' ? 'super_admin' : 'sales_rep';
+  const operatorRole: StaffRole = normalizeRole(roleVal);
 
   return {
     id,

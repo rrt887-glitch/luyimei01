@@ -94,6 +94,18 @@ export const adminFunctions = {
     >('adminDeleteStaff', { staffIds });
   },
 
+  updateStaffRole(staffIds: string[], role: StaffRole) {
+    return callAdminFunction<{ staffIds: string[]; role: StaffRole }, { updatedIds: string[]; count: number; skippedSelf: boolean }>(
+      'adminUpdateStaffStatus',
+      { staffIds, role }
+    );
+  },
+
+  /** Own name and login phone (any role). */
+  updateOwnProfile(data: { name?: string; phone?: string }) {
+    return callAdminFunction<{ name?: string; phone?: string }, { name: string; phone: string; phoneChanged: boolean }>('updateOwnProfile', data);
+  },
+
   updateStaffStatus(staffIds: string[], status: 'active' | 'suspended') {
     return callAdminFunction<
       { staffIds: string[]; status: 'active' | 'suspended' },

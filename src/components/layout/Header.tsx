@@ -7,6 +7,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { api } from '../../services/api';
 import { StaffAccount } from '../../types/admin';
 import { BrandLogo } from '../common/BrandMark';
+import { roleLabel } from '../../config/staffRoles';
 
 interface HeaderProps {
   savedCount: number;
@@ -18,6 +19,8 @@ interface HeaderProps {
   adminStaffSession?: StaffAccount | null;
   /** Show the "新款" link (the homepage has a New arrivals row). */
   hasNewArrivals?: boolean;
+  /** The page shown (its menu link is marked as current). */
+  currentPage?: 'home' | 'factory' | 'news';
 }
 
 type NavItem = { href: string; label: string; category?: string };
@@ -30,7 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdminConsole,
   onSelectNavCategory,
   adminStaffSession,
-  hasNewArrivals
+  hasNewArrivals,
+  currentPage = 'home'
 }) => {
   const { d, lang, setLang } = useI18n();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -62,14 +66,14 @@ export const Header: React.FC<HeaderProps> = ({
     { href: '#products', label: d.nav.allProducts, category: 'all' },
     ...categories.map(c => ({ href: '#products', label: categoryLabel(c, lang), category: c.id }))
   ];
-  // 工厂介绍 / 公司新闻 are always in the menu (their sections show a short note while empty);
+  // 工厂介绍 / 公司新闻 are pages of their own (#/factory, #/news), always in the menu;
   // 新款 only while products are marked as new arrivals.
   const navItems: NavItem[] = [
     ...(hasNewArrivals ? [{ href: '#new', label: d.site.navNew }] : []),
-    { href: '#factory', label: d.site.navFactory },
+    { href: '#/factory', label: d.site.navFactory },
     { href: '#process', label: d.nav.process },
     { href: '#cases', label: d.nav.cases },
-    { href: '#news', label: d.site.navNews },
+    { href: '#/news', label: d.site.navNews },
     { href: '#contact', label: d.nav.contact }
   ];
 
@@ -135,7 +139,8 @@ export const Header: React.FC<HeaderProps> = ({
               key={item.label}
               href={item.href}
               onClick={() => handleNavClick(item.category)}
-              className="relative px-3 py-2 text-slate-600 hover:text-night transition-colors after:absolute after:left-3 after:right-3 after:-bottom-[13px] after:h-[3px] after:rounded-full after:bg-sky after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:origin-left"
+              aria-current={item.href === `#/${currentPage}` ? 'page' : undefined}
+              className="relative px-3 py-2 text-slate-600 hover:text-night aria-[current=page]:text-night aria-[current=page]:after:scale-x-100 transition-colors after:absolute after:left-3 after:right-3 after:-bottom-[13px] after:h-[3px] after:rounded-full after:bg-sky after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:origin-left"
             >
               {item.label}
             </a>
@@ -174,7 +179,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onOpenAdminConsole}
               className="hidden md:inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-night text-white text-sm font-semibold hover:bg-night-soft transition-colors"
-              title={`${adminStaffSession.name}（${adminStaffSession.role === 'super_admin' ? '超级管理员' : '销售代表'}）`}
+              title={`${adminStaffSession.name}（${roleLabel(adminStaffSession.role)}）`}
             >
               <LayoutDashboard className="w-4 h-4 text-sky" />
               <span>进入中台</span>

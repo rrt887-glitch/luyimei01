@@ -23,17 +23,25 @@ interface CustomerViewProps {
   leads?: AdminLead[];
   onRefreshCustomers: () => void;
   onShowToast: (msg: string) => void;
+  /** Sales reps: the customers of their own leads, view and export only. */
+  readOnly?: boolean;
 }
 
 export const CustomerView: React.FC<CustomerViewProps> = ({
   customers,
   leads = [],
   onRefreshCustomers,
-  onShowToast
+  onShowToast,
+  readOnly = false
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null);
-  const relatedLeads = selectedCustomer ? leads.filter(l => l.customerId === selectedCustomer.id) : [];
+  // A rep's customers built from leads without a server customer id are keyed by contact (repCustomers.ts).
+  const relatedLeads = selectedCustomer
+    ? leads.filter(
+        l => l.customerId === selectedCustomer.id || (!l.customerId && selectedCustomer.id === `lead-contact:${(l.phone || '').trim().toLowerCase() || l.id}`)
+      )
+    : [];
 
   // Batch management state
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
@@ -180,7 +188,11 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
     <div className="adm-page">
       <PageHeader
         title="客户档案"
-        description="官网询价和买家注册会自动建档。累计报价由服务器在开具报价单时累加。"
+        description={
+          readOnly
+            ? '你名下线索的客户。累计报价为你给这些客户开具的报价单合计。'
+            : '官网询价和买家注册会自动建档。累计报价由服务器在开具报价单时累加。'
+        }
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5">
@@ -306,9 +318,11 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
                               <MessageCircle className="w-4 h-4" />
                             </a>
                           )}
-                          <button onClick={() => setCustomerToDelete(customer)} className="icon-btn danger" aria-label="删除客户" title="删除客户">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {!readOnly && (
+                            <button onClick={() => setCustomerToDelete(customer)} className="icon-btn danger" aria-label="删除客户" title="删除客户">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -328,6 +342,7 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
           </span>
           <select
             defaultValue=""
+            hidden={readOnly}
             onChange={e => {
               if (e.target.value) {
                 handleBatchStatusChange(e.target.value as CustomerStatus);
@@ -350,10 +365,12 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
             <Download className="w-4 h-4" />
             导出
           </button>
-          <button onClick={() => setIsConfirmingBatchDelete(true)} className="btn btn-sm text-rose-200 hover:bg-rose-500/20">
-            <Trash2 className="w-4 h-4" />
-            删除
-          </button>
+          {!readOnly && (
+            <button onClick={() => setIsConfirmingBatchDelete(true)} className="btn btn-sm text-rose-200 hover:bg-rose-500/20">
+              <Trash2 className="w-4 h-4" />
+              删除
+            </button>
+          )}
           <button onClick={() => setSelectedCustomerIds(new Set())} className="icon-btn ms-auto !text-white/70 hover:!bg-white/10" aria-label="取消选择">
             <X className="w-4 h-4" />
           </button>
@@ -441,8 +458,8 @@ export const CustomerView: React.FC<CustomerViewProps> = ({
               </ul>
             )}
 
-            <h3 className="mt-7 mb-3 text-sm font-semibold text-night">客户状态</h3>
-            <div className="segmented w-full" role="group" aria-label="客户状态">
+            {!readOnly && <h3 className="mt-7 mb-3 text-sm font-semibold text-night">客户状态</h3>}
+            <div className="segmented w-full" role="group" aria-label="客户状态" hidden={readOnly}>
               {CUSTOMER_STATUS.map(st => (
                 <button
                   key={st.key}

@@ -1,6 +1,7 @@
 import type { LeadImportItem } from './admin/leadsCrmService';
 import { Product, InquiryFormData } from '../types';
 import { initialProducts } from '../data/products';
+import { canEditCatalog, roleLabel } from '../config/staffRoles';
 import {
   initPersistentProducts,
   persistProductUpdate,
@@ -71,8 +72,8 @@ class AdminApiService {
 
   private assertSuperAdminForProductWrite(): StaffAccount {
     const current = this.staffService.getCurrentStaff();
-    if (!current || current.role !== 'super_admin') {
-      throw new Error('越权拦截：仅超级管理员有权新增、修改或删除目录商品！');
+    if (!current || !canEditCatalog(current.role)) {
+      throw new Error('越权拦截：仅超级管理员和运营有权新增、修改或删除目录商品！');
     }
     return current;
   }
@@ -383,6 +384,18 @@ class AdminApiService {
     return this.staffService.resetStaffPassword(staffId, newPassword);
   }
 
+  updateStaffRole(staffId: string, role: StaffRole) {
+    return this.staffService.updateStaffRole(staffId, role);
+  }
+
+  updateOwnProfile(next: { name: string; phone: string }) {
+    return this.staffService.updateOwnProfile(next);
+  }
+
+  changeOwnPassword(currentPassword: string, newPassword: string) {
+    return this.staffService.changeOwnPassword(currentPassword, newPassword);
+  }
+
   // ============================================================================
   // 3. CRM Leads & Inquiries Delegation
   // ============================================================================
@@ -656,7 +669,7 @@ class AdminApiService {
     const staff = this.staffService.getCurrentStaff();
     if (staff) {
       await Promise.race([
-        this.auditService.logAction(staff, '退出中台', staff.name, `角色: ${staff.role === 'super_admin' ? '超级管理员' : '销售代表'}`),
+        this.auditService.logAction(staff, '退出中台', staff.name, `角色: ${roleLabel(staff.role)}`),
         new Promise(resolve => setTimeout(resolve, 3000))
       ]);
     }

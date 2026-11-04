@@ -368,6 +368,8 @@ export const en: typeof zh = {
     navNews: 'News',
     factoryEmpty: 'Factory photos are coming soon. Contact us to arrange a visit or ask for a factory video.',
     newsEmpty: 'Company news is coming soon.',
+    backToNews: 'Back to news',
+    newsMissing: 'This article is not available.',
     newTitle: 'New Arrivals',
     newSubtitle: 'Our latest products. Open one for details or ask for a quote.',
     newBadge: 'New',

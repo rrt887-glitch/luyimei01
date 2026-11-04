@@ -3,7 +3,7 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Product media may be written only by a super admin holding a current upload grant.
+    // Product and website media may be written only by a super admin or operator holding a current upload grant.
     //
     // grantUploadAccess (Cloud Function) checks the staff document live, then
     //   * writes the grant record upload_grants/{uid} in the (default) Firestore database, and
@@ -14,7 +14,7 @@ service firebase.storage {
     // super admin as a second line of defence.
     function canWriteMedia() {
       return request.auth != null &&
-        request.auth.token.get('role', '') == 'super_admin' &&
+        request.auth.token.get('role', '') in ['super_admin', 'operator'] &&
         request.auth.token.get('staff', false) == true &&
         request.auth.token.get('uploadUntil', 0) > request.time.toMillis() &&
         // The LIVE grant record (written by grantUploadAccess, deleted the moment the account is

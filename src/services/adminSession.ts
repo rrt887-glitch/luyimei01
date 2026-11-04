@@ -1,4 +1,5 @@
 import { StaffAccount, StaffRole } from '../types/admin';
+import { normalizeRole } from '../config/staffRoles';
 import { isReservedStaffEmail } from '../config/appConfig';
 import { normalizePhoneDigits } from './admin/adminShared';
 
@@ -30,7 +31,7 @@ export const ADMIN_SESSION_CLEARED_EVENT = 'lym:admin-session-cleared';
 
 export function sanitizeStaffProfile(raw: Record<string, any>, fallbackUid?: string): StaffAccount {
   const uid = String(raw.uid || raw.id || fallbackUid || '').trim();
-  const role: StaffRole = raw.role === 'super_admin' ? 'super_admin' : 'sales_rep';
+  const role: StaffRole = normalizeRole(raw.role);
   const status: 'active' | 'suspended' = raw.status === 'suspended' ? 'suspended' : 'active';
   const lastLogin = String(raw.lastLogin || raw.lastLoginAt || '尚未登录');
   const defaultName = role === 'super_admin' ? '系统超级管理员' : '未命名员工';

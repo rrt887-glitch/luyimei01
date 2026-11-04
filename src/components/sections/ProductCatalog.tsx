@@ -23,6 +23,8 @@ interface ProductCatalogProps {
   onSelectCategory: (category: ProductFilterCategory) => void;
   onlyFavorites: boolean;
   onClearOnlyFavorites: () => void;
+  /** Shown elsewhere on the page (New arrivals): left out of the unfiltered list. */
+  hideIds?: Set<string>;
 }
 
 export const ProductCatalog: React.FC<ProductCatalogProps> = ({
@@ -35,7 +37,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   activeCategory,
   onSelectCategory,
   onlyFavorites,
-  onClearOnlyFavorites
+  onClearOnlyFavorites,
+  hideIds
 }) => {
   const { d, lang } = useI18n();
   const { categories } = useProductCategories();
@@ -61,7 +64,12 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   const effectiveCategory = activeCategory === 'all' || categories.some(c => c.id === activeCategory) ? activeCategory : 'all';
 
   const filteredProducts = useMemo(() => {
+    // Browsing everything: products already in the New arrivals row are not shown twice.
+    // Any category, search, filter or favourites view shows every match.
+    const unfiltered =
+      effectiveCategory === 'all' && !onlyFavorites && !searchQuery.trim() && filterBrand === 'all' && filterCondition === 'all' && filterStock === 'all' && filterYear === 'all';
     const list = products.filter(p => {
+      if (unfiltered && hideIds?.has(p.id)) return false;
       // Category filter
       if (effectiveCategory !== 'all' && p.type !== effectiveCategory) {
         return false;
@@ -89,7 +97,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
       if (!a.featured && b.featured) return 1;
       return 0;
     });
-  }, [products, effectiveCategory, onlyFavorites, savedIds, filterBrand, filterCondition, filterStock, filterYear, searchQuery, texts]);
+  }, [products, effectiveCategory, onlyFavorites, savedIds, filterBrand, filterCondition, filterStock, filterYear, searchQuery, texts, hideIds]);
 
   useEffect(() => {
     setVisibleCount(pageSize);
@@ -125,7 +133,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
 
   // One tab per category that has products (or is selected), in the order set in the console.
   const tabs: { id: ProductFilterCategory; label: string; count: number }[] = [
-    { id: 'all', label: d.catalog.allProducts, count: products.length },
+    { id: 'all', label: d.catalog.allProducts, count: products.filter(p => !hideIds?.has(p.id)).length },
     ...categories
       .map(c => ({ id: c.id, label: categoryLabel(c, lang), count: products.filter(p => p.type === c.id).length }))
       .filter(tab => tab.count > 0 || tab.id === effectiveCategory)

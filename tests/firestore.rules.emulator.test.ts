@@ -41,7 +41,7 @@ if (!emulatorHost) {
 const describeEmulator = emulatorHost ? describe : describe.skip;
 const now = () => new Date().toISOString();
 
-const staffDoc = (uid: string, name: string, role: 'super_admin' | 'sales_rep', status: 'active' | 'suspended' = 'active') => ({
+const staffDoc = (uid: string, name: string, role: 'super_admin' | 'sales_rep' | 'operator', status: 'active' | 'suspended' = 'active') => ({
   id: uid,
   uid,
   name,
@@ -98,6 +98,7 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       await setDoc(doc(db, 'staff', 'admin'), staffDoc('admin', '超级管理员', 'super_admin'));
       await setDoc(doc(db, 'staff', 'repA'), staffDoc('repA', '销售甲', 'sales_rep'));
       await setDoc(doc(db, 'staff', 'repB'), staffDoc('repB', '销售乙', 'sales_rep'));
+      await setDoc(doc(db, 'staff', 'op'), staffDoc('op', '运营甲', 'operator'));
       await setDoc(doc(db, 'staff', 'suspendedAdmin'), staffDoc('suspendedAdmin', '停用管理员', 'super_admin', 'suspended'));
       await setDoc(doc(db, 'inquiries', 'INQ-POOL'), leadDoc('INQ-POOL'));
       await setDoc(
@@ -289,6 +290,24 @@ describeEmulator('firestore.rules behaviour (emulator)', () => {
       await assertSucceeds(setDoc(doc(asUser('admin'), 'site_config', 'contact'), cfg));
       await assertSucceeds(setDoc(doc(asUser('admin'), 'site_config', 'contact'), { ...cfg, addressEn: 'Guangzhou, China' }));
       await assertFails(setDoc(doc(asUser('admin'), 'site_config', 'contact'), { ...cfg, addressEn: 'x'.repeat(301) }));
+    });
+
+    it('operator: products, categories, website content and contact; no leads, quotations, customers, billing', async () => {
+      const op = asUser('op');
+      await assertSucceeds(setDoc(doc(op, 'products', 'p9'), { id: 'p9', type: 'material', model: 'OP-1', price: '$1', inStock: true }));
+      await assertSucceeds(setDoc(doc(op, 'site_config', 'categories'), { items: [{ id: 'material', name: { zh: '材料' } }] }));
+      await assertSucceeds(setDoc(doc(op, 'site_config', 'contact'), { wechatId: 'x', officialEmail: 'a@b.com', address: '广州', alibabaUrl: 'https://a.en.alibaba.com' }));
+      await assertSucceeds(setDoc(doc(op, 'news', 'n9'), { id: 'n9', title: 't', content: 'c', date: '2026-11-04', published: false }));
+      await assertSucceeds(getDoc(doc(op, 'news', 'n9')));
+      await assertFails(setDoc(doc(op, 'site_config', 'billing'), { beneficiary: 'x', bankName: 'y', accountNumber: '1' }));
+      await assertFails(getDoc(doc(op, 'site_config', 'billing')));
+      await assertFails(getDocs(query(collection(op, 'inquiries'), where('assignedStaffId', 'in', ['', 'op']))));
+      await assertFails(getDocs(collection(op, 'customers')));
+      await assertFails(getDocs(collection(op, 'audit_logs')));
+      // A lead can never be given to an operator.
+      await assertFails(updateDoc(doc(asUser('admin'), 'inquiries', 'INQ-POOL'), { assignedStaffId: 'op', assignedStaffName: '运营甲' }));
+      // Sales reps cannot edit products.
+      await assertFails(setDoc(doc(asUser('repA'), 'products', 'p9'), { id: 'p9', type: 'material', model: 'X', price: '$1', inStock: true }));
     });
 
     it('website content: factory photos public, news drafts hidden, super-admin-only writes', async () => {

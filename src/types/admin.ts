@@ -47,7 +47,7 @@ export interface CustomerProfile {
   registeredAt?: string;
 }
 
-export type StaffRole = 'super_admin' | 'sales_rep';
+export type StaffRole = 'super_admin' | 'sales_rep' | 'operator';
 
 export interface StaffAccount {
   id: string;

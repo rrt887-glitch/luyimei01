@@ -1,6 +1,7 @@
 import { StaffAccount, StaffRole } from '../../types/admin';
+import { roleLabel } from '../../config/staffRoles';
 import { db, auth } from '../firebase';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { EmailAuthProvider, reauthenticateWithCredential, signInWithEmailAndPassword, signOut, updatePassword } from 'firebase/auth';
 import { collection, doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { validatePasswordStrength } from '../../utils/crypto';
 import {
@@ -358,9 +359,7 @@ export class StaffAuthDomainService {
       return {
         success: true,
         staff: staffProfile,
-        message: `欢迎回来，${staffProfile.name}（${
-          staffProfile.role === 'super_admin' ? '超级管理员' : '销售代表'
-        }）`
+        message: `欢迎回来，${staffProfile.name}（${roleLabel(staffProfile.role)}）`
       };
     } catch (err: any) {
       await signOut(auth).catch(() => {});
@@ -513,5 +512,66 @@ export class StaffAuthDomainService {
       '已通过后台服务更新密码，并强制该员工所有设备重新登录'
     );
     return true;
+  }
+
+  async updateStaffRole(staffId: string, role: StaffRole): Promise<void> {
+    const actor = this.requireSuperAdmin('调整员工角色');
+    const target = this.staffList.find(s => s.id === staffId);
+    if (!target || target.role === role) return;
+    if (target.id === actor.id && role !== 'super_admin') throw new Error('安全保护：不能把自己降为其他角色。');
+    const res = await adminFunctions.updateStaffRole([staffId], role);
+    if (!res.count) throw new Error('角色没有修改成功，请刷新后重试。');
+    const before = target.role;
+    target.role = role;
+    this.saveReadOnlyStaffCache();
+    this.auditLogger.logAction(
+      actor,
+      '调整员工角色',
+      `${target.name} (${target.phone})`,
+      `${roleLabel(before)} → ${roleLabel(role)}${role === 'operator' ? '；名下线索已退回公海' : ''}`
+    );
+  }
+
+  /** Own name / login phone, changed server-side (the login account follows the phone). */
+  async updateOwnProfile(next: { name: string; phone: string }): Promise<StaffAccount> {
+    const me = this.currentStaff;
+    if (!me || !auth.currentUser) throw new Error('登录已过期，请重新登录。');
+    const name = next.name.trim();
+    const phone = normalizePhoneDigits(next.phone);
+    if (!name) throw new Error('请填写姓名。');
+    if (phone.length < 6) throw new Error('请填写有效的手机号。');
+    if (name === me.name && phone === normalizePhoneDigits(me.phone)) return me;
+    const res = await adminFunctions.updateOwnProfile({ name, phone });
+    const updated: StaffAccount = { ...me, name: res.name, phone: res.phone };
+    this.currentStaff = updated;
+    this.setAdminSession(updated);
+    this.staffList = this.staffList.map(s => (s.id === me.id ? { ...s, name: res.name, phone: res.phone } : s));
+    this.saveReadOnlyStaffCache();
+    const changes = [
+      name !== me.name ? `姓名：${me.name} → ${res.name}` : '',
+      res.phoneChanged ? `登录手机号：${me.phone} → ${res.phone}` : ''
+    ].filter(Boolean);
+    this.auditLogger.logAction(updated, '修改我的账号信息', updated.name, changes.join('；'));
+    return updated;
+  }
+
+  /** Own password: re-checks the current one first (Firebase requires a recent sign-in). */
+  async changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+    const me = this.currentStaff;
+    const user = auth.currentUser;
+    if (!me || !user || !user.email) throw new Error('登录已过期，请重新登录。');
+    const check = validatePasswordStrength(newPassword);
+    if (!check.valid) throw new Error(check.message || '新密码不符合要求。');
+    if (newPassword === currentPassword) throw new Error('新密码不能和当前密码相同。');
+    try {
+      await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, currentPassword));
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (/wrong-password|invalid-credential|invalid-login/.test(code)) throw new Error('当前密码不正确。');
+      if (/too-many-requests/.test(code)) throw new Error('尝试次数过多，请稍后再试。');
+      throw new Error(`验证当前密码失败：${err?.message || '请检查网络'}`);
+    }
+    await updatePassword(user, check.trimmed);
+    this.auditLogger.logAction(me, '修改我的登录密码', me.name, '本人修改');
   }
 }

@@ -92,8 +92,14 @@ service cloud.firestore {
       return hasActiveStaffDoc() && get(staffDocPath()).data.role == 'super_admin';
     }
 
+    // Staff who work with leads and quotations (super admins and sales reps; NOT operators).
     function isActiveStaff() {
       return hasActiveStaffDoc() && get(staffDocPath()).data.role in ['super_admin', 'sales_rep'];
+    }
+
+    // Staff who edit products, categories and website content (super admins and operators).
+    function isContentEditor() {
+      return hasActiveStaffDoc() && get(staffDocPath()).data.role in ['super_admin', 'operator'];
     }
 
     // A lead is "owned" by the caller when it sits in the public pool or is assigned to the caller.
@@ -106,7 +112,8 @@ service cloud.firestore {
     function isAssignableOwner(newId, oldId) {
       return newId == '' || newId == oldId || (
         exists(/databases/$(database)/documents/staff/$(newId)) &&
-        get(/databases/$(database)/documents/staff/$(newId)).data.status == 'active'
+        get(/databases/$(database)/documents/staff/$(newId)).data.status == 'active' &&
+        get(/databases/$(database)/documents/staff/$(newId)).data.role in ['super_admin', 'sales_rep']
       );
     }
 
@@ -294,7 +301,7 @@ service cloud.firestore {
         data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
         data.phone is string && data.phone.size() <= 50 &&
         (data.role == 'super_admin' || data.phone.size() >= 1) &&
-        data.role in ['super_admin', 'sales_rep'] &&
+        data.role in ['super_admin', 'sales_rep', 'operator'] &&
         data.status in ['active', 'suspended'] &&
         (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
         (!('lastLoginAt' in data) || (data.lastLoginAt is string && data.lastLoginAt.size() <= 100)) &&
@@ -313,7 +320,7 @@ service cloud.firestore {
         data.action is string && data.action.size() >= 1 && data.action.size() <= 300 &&
         data.target is string && data.target.size() <= 500 &&
         data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 100 &&
-        (!('operatorRole' in data) || data.operatorRole in ['super_admin', 'sales_rep']) &&
+        (!('operatorRole' in data) || data.operatorRole in ['super_admin', 'sales_rep', 'operator']) &&
         (!('details' in data) || (data.details is string && data.details.size() <= 2000));
     }
 
@@ -512,19 +519,19 @@ service cloud.firestore {
     // drafts for super admins only; the website queries where('published', '==', true)).
     match /factory_photos/{photoId} {
       allow read: if true;
-      allow create, update: if isAdmin() && isValidFactoryPhoto(request.resource.data) && request.resource.data.id == photoId;
-      allow delete: if isAdmin();
+      allow create, update: if isContentEditor() && isValidFactoryPhoto(request.resource.data) && request.resource.data.id == photoId;
+      allow delete: if isContentEditor();
     }
     match /news/{postId} {
-      allow read: if resource.data.published == true || isAdmin();
-      allow create, update: if isAdmin() && isValidNewsPost(request.resource.data) && request.resource.data.id == postId;
-      allow delete: if isAdmin();
+      allow read: if resource.data.published == true || isContentEditor();
+      allow create, update: if isContentEditor() && isValidNewsPost(request.resource.data) && request.resource.data.id == postId;
+      allow delete: if isContentEditor();
     }
 
     match /products/{productId} {
       allow read: if true;
-      allow create, update: if isAdmin() && isValidProduct(request.resource.data);
-      allow delete: if isAdmin();
+      allow create, update: if isContentEditor() && isValidProduct(request.resource.data);
+      allow delete: if isContentEditor();
     }
 
     // 4. Buyer Profiles:
@@ -607,7 +614,7 @@ service cloud.firestore {
     // - Immutable (no updates or deletes).
     match /audit_logs/{logId} {
       allow read: if isAdmin();
-      allow create: if isActiveStaff() &&
+      allow create: if hasActiveStaffDoc() &&
         isValidAuditLog(request.resource.data) &&
         request.resource.data.id == logId &&
         request.resource.data.operator == get(staffDocPath()).data.name &&
@@ -648,12 +655,15 @@ service cloud.firestore {
     match /site_config/{configId} {
       // Contact details are public (shown on the website); bank details are for staff only.
       allow read: if !(configId in ['billing', 'quotation']) || isActiveStaff();
-      allow create, update: if isAdmin() && (
-        (configId == 'billing' && isValidBillingConfig(request.resource.data)) ||
-        (configId == 'quotation' && isValidQuotationConfig(request.resource.data)) ||
-        (configId == 'categories' && isValidCategoryConfig(request.resource.data)) ||
-        (!(configId in ['billing', 'quotation', 'categories']) && isValidSiteContactConfig(request.resource.data))
-      );
+      // Bank details and quotation settings: super admins. Categories and the website contact /
+      // floating widget: super admins and operators (both edit the website).
+      allow create, update: if (isAdmin() && (
+          (configId == 'billing' && isValidBillingConfig(request.resource.data)) ||
+          (configId == 'quotation' && isValidQuotationConfig(request.resource.data))
+        )) || (isContentEditor() && (
+          (configId == 'categories' && isValidCategoryConfig(request.resource.data)) ||
+          (!(configId in ['billing', 'quotation', 'categories']) && isValidSiteContactConfig(request.resource.data))
+        ));
       allow delete: if isAdmin();
     }
 

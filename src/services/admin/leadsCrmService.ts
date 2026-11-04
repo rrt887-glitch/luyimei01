@@ -28,6 +28,7 @@ import { formatUsd, toCents } from '../../utils/format';
 function assertAssignable(staff: StaffAccount | undefined): void {
   if (!staff) throw new Error('未找到目标员工，无法指派。');
   if (staff.status !== 'active') throw new Error(`员工「${staff.name}」已停用，不能指派线索。`);
+  if (staff.role === 'operator') throw new Error(`「${staff.name}」是运营账号，不能指派线索。`);
 }
 
 export interface LeadImportItem {

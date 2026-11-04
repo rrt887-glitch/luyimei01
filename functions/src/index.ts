@@ -66,7 +66,10 @@ async function revokeUploadGrant(uid: string): Promise<void> {
   await uploadGrantRef(uid).delete().catch(err => console.error(`Could not revoke upload grant of ${uid}:`, err));
 }
 
-type StaffRole = 'super_admin' | 'sales_rep';
+type StaffRole = 'super_admin' | 'sales_rep' | 'operator';
+const normalizeRole = (r: unknown): StaffRole => (r === 'super_admin' || r === 'operator' ? r : 'sales_rep');
+/** Roles that edit products, categories and website content (and may upload media). */
+const CONTENT_ROLES: StaffRole[] = ['super_admin', 'operator'];
 type StaffStatus = 'active' | 'suspended';
 
 interface StaffDoc {
@@ -138,6 +141,27 @@ async function assertCallerIsSuperAdmin(
   return authContext.uid;
 }
 
+/** The caller must own an active staff document whose role may edit products / website content. */
+async function assertCallerIsContentEditor(authContext: { uid: string } | undefined): Promise<string> {
+  if (!authContext || !authContext.uid) throw new HttpsError('unauthenticated', '未检测到登录凭证，请先登录。');
+  const data = (await staffRef(authContext.uid).get()).data();
+  const isActive = data && (data.status === undefined || data.status === 'active');
+  if (!data || !isActive || !CONTENT_ROLES.includes(normalizeRole(data.role))) {
+    throw new HttpsError('permission-denied', '越权拦截：仅在职的超级管理员或运营可上传、删除商品和官网图片。');
+  }
+  return authContext.uid;
+}
+
+/** The caller must own an active staff document (any role). */
+async function assertCallerIsActiveStaff(authContext: { uid: string } | undefined): Promise<{ uid: string; data: Record<string, any> }> {
+  if (!authContext || !authContext.uid) throw new HttpsError('unauthenticated', '未检测到登录凭证，请先登录。');
+  const data = (await staffRef(authContext.uid).get()).data();
+  if (!data || !(data.status === undefined || data.status === 'active')) {
+    throw new HttpsError('permission-denied', '员工账号不存在或已停用。');
+  }
+  return { uid: authContext.uid, data };
+}
+
 /** Count active super admins, optionally excluding some uids. */
 async function countActiveSuperAdmins(excludeUids: Set<string>): Promise<number> {
   const snap = await adminDb.collection('staff').where('role', '==', 'super_admin').get();
@@ -172,7 +196,7 @@ async function releaseLeadsOfStaff(staffUid: string): Promise<number> {
 
 /** Keep Custom Claims + Auth disabled flag in sync with the staff document, and kick old sessions. */
 async function syncAuthWithStaffState(uid: string, role: StaffRole | null, status: StaffStatus | null) {
-  if (role !== 'super_admin' || status !== 'active') await revokeUploadGrant(uid);
+  if (!role || !CONTENT_ROLES.includes(role) || status !== 'active') await revokeUploadGrant(uid);
   if (!role || status !== 'active') {
     await adminAuth.setCustomUserClaims(uid, null);
     await adminAuth.updateUser(uid, { disabled: true });
@@ -221,7 +245,7 @@ export const adminCreateStaff = onCall(async request => {
   const cleanName = String(name || '').trim().slice(0, 100);
   const cleanPhone = normalizePhoneDigits(String(phone || ''));
   const cleanPassword = String(password || '').trim();
-  const targetRole: StaffRole = role === 'super_admin' ? 'super_admin' : 'sales_rep';
+  const targetRole: StaffRole = normalizeRole(role);
 
   if (!cleanName || cleanPhone.length < 6) {
     throw new HttpsError('invalid-argument', '请提供有效的员工姓名与手机号。');
@@ -331,6 +355,55 @@ export const adminResetStaffPassword = onCall(async request => {
 });
 
 // ---------------------------------------------------------------------------
+// 2b. updateOwnProfile — every staff member edits their own name and login phone
+//     (the password is changed in the browser after re-entering the current one).
+//     The login account is staff.<phone>@<domain>, so a new phone moves the Auth email too.
+// ---------------------------------------------------------------------------
+export const updateOwnProfile = onCall(async request => {
+  const { uid, data: current } = await assertCallerIsActiveStaff(request.auth);
+  const { name, phone } = (request.data || {}) as { name?: string; phone?: string };
+
+  const cleanName = name === undefined ? String(current.name || '') : String(name).trim().slice(0, 100);
+  if (!cleanName) throw new HttpsError('invalid-argument', '请填写姓名。');
+  const oldPhone = normalizePhoneDigits(String(current.phone || ''));
+  const cleanPhone = phone === undefined ? oldPhone : normalizePhoneDigits(String(phone));
+  if (cleanPhone.length < 6) throw new HttpsError('invalid-argument', '请填写有效的手机号。');
+
+  const nowIso = new Date().toISOString();
+  const patch: Record<string, unknown> = { name: cleanName, updatedAt: nowIso };
+
+  if (cleanPhone !== oldPhone) {
+    const taken = await adminDb.collection('staff').where('phone', '==', cleanPhone).limit(2).get();
+    if (taken.docs.some(d => d.id !== uid)) throw new HttpsError('already-exists', `手机号 ${cleanPhone} 已被其他员工账号使用。`);
+    const newEmail = phoneToStaffAuthEmail(cleanPhone);
+    try {
+      await adminAuth.updateUser(uid, { email: newEmail, displayName: cleanName });
+    } catch (err: any) {
+      if (err?.code === 'auth/email-already-exists') throw new HttpsError('already-exists', `手机号 ${cleanPhone} 已被其他账号使用。`);
+      throw new HttpsError('internal', `修改登录手机号失败：${err?.message || '未知错误'}`);
+    }
+    patch.phone = cleanPhone;
+    // The contact email follows the login account unless a real one was set.
+    if (!current.email || current.email === phoneToStaffAuthEmail(oldPhone)) patch.email = newEmail;
+  } else if (cleanName !== current.name) {
+    await adminAuth.updateUser(uid, { displayName: cleanName }).catch(() => {});
+  }
+
+  await staffRef(uid).update(patch);
+
+  // Leads show their owner's name: keep it current.
+  if (cleanName !== current.name) {
+    const owned = await adminDb.collection('inquiries').where('assignedStaffId', '==', uid).get();
+    for (let i = 0; i < owned.docs.length; i += FIRESTORE_BATCH_LIMIT) {
+      const batch = adminDb.batch();
+      owned.docs.slice(i, i + FIRESTORE_BATCH_LIMIT).forEach(d => batch.update(d.ref, { assignedStaffName: cleanName }));
+      await batch.commit();
+    }
+  }
+  return { name: cleanName, phone: cleanPhone, phoneChanged: cleanPhone !== oldPhone };
+});
+
+// ---------------------------------------------------------------------------
 // 3. adminUpdateStaffStatus (status and/or role)
 // ---------------------------------------------------------------------------
 export const adminUpdateStaffStatus = onCall(async request => {
@@ -346,7 +419,7 @@ export const adminUpdateStaffStatus = onCall(async request => {
   if (status !== undefined && status !== 'active' && status !== 'suspended') {
     throw new HttpsError('invalid-argument', '无效的员工状态。');
   }
-  if (role !== undefined && role !== 'super_admin' && role !== 'sales_rep') {
+  if (role !== undefined && role !== 'super_admin' && role !== 'sales_rep' && role !== 'operator') {
     throw new HttpsError('invalid-argument', '无效的员工角色。');
   }
 
@@ -359,7 +432,7 @@ export const adminUpdateStaffStatus = onCall(async request => {
 
   const losingAdmin = new Set<string>();
   for (const uid of filteredIds) {
-    if (status === 'suspended' || role === 'sales_rep') losingAdmin.add(uid);
+    if (status === 'suspended' || (role !== undefined && role !== 'super_admin')) losingAdmin.add(uid);
   }
   if (losingAdmin.size > 0 && (await countActiveSuperAdmins(losingAdmin)) === 0) {
     throw new HttpsError('failed-precondition', '安全保护：系统必须至少保留一位在职超级管理员。');
@@ -375,9 +448,13 @@ export const adminUpdateStaffStatus = onCall(async request => {
 
     const current = snap.data() || {};
     const nextStatus: StaffStatus = status ?? (current.status === 'suspended' ? 'suspended' : 'active');
-    const nextRole: StaffRole = role ?? (current.role === 'super_admin' ? 'super_admin' : 'sales_rep');
+    const nextRole: StaffRole = role ?? normalizeRole(current.role);
 
     await ref.update({ status: nextStatus, role: nextRole, updatedAt: nowIso });
+    // Operators do not work with leads: anything they held goes back to the pool.
+    if (nextRole === 'operator' && normalizeRole(current.role) !== 'operator') {
+      await releaseLeadsOfStaff(uid).catch(err => console.warn(`Lead release warning for ${uid}:`, err));
+    }
     await syncAuthWithStaffState(uid, nextRole, nextStatus).catch(err => {
       // The staff document already revokes access server-side; claims are only a client hint.
       console.warn(`Auth sync warning for ${uid}:`, err);
@@ -402,19 +479,20 @@ export const adminUpdateStaffStatus = onCall(async request => {
 const UPLOAD_GRANT_MS = 15 * 60 * 1000;
 
 export const grantUploadAccess = onCall(async request => {
-  const uid = await assertCallerIsSuperAdmin(request.auth);
+  const uid = await assertCallerIsContentEditor(request.auth);
+  const role = normalizeRole((await staffRef(uid).get()).get('role'));
   const uploadUntil = Date.now() + UPLOAD_GRANT_MS;
   // The live record storage.rules check on every write; suspension deletes it (revokeUploadGrant).
   await uploadGrantRef(uid).set({ uploadUntil, updatedAt: new Date().toISOString() });
-  await adminAuth.setCustomUserClaims(uid, { role: 'super_admin', staff: true, uploadUntil });
+  await adminAuth.setCustomUserClaims(uid, { role, staff: true, uploadUntil });
   return { uploadUntil };
 });
 
-/** Live check against the staff document (the same test as assertCallerIsSuperAdmin). */
-async function isActiveSuperAdmin(uid: string): Promise<boolean> {
+/** Live check against the staff document (the same test as assertCallerIsContentEditor). */
+async function isActiveContentEditor(uid: string): Promise<boolean> {
   if (!uid) return false;
   const data = (await staffRef(uid).get()).data();
-  return !!data && data.role === 'super_admin' && (data.status === undefined || data.status === 'active');
+  return !!data && CONTENT_ROLES.includes(normalizeRole(data.role)) && (data.status === undefined || data.status === 'active');
 }
 
 // The grant above cannot be withdrawn before it expires (it travels inside the ID token). So the
@@ -427,9 +505,9 @@ export const onProductMediaUploaded = onObjectFinalized({ retry: true }, async e
   const name = event.data.name || '';
   if (!name.startsWith('products/') && !name.startsWith('site/')) return;
   const uploaderUid = String(event.data.metadata?.uploaderUid || '');
-  if (await isActiveSuperAdmin(uploaderUid)) return;
+  if (await isActiveContentEditor(uploaderUid)) return;
   await getStorage().bucket(event.data.bucket).file(name).delete({ ignoreNotFound: true });
-  console.warn(`Removed ${name}: uploader ${uploaderUid || '(unknown)'} is not an active super admin.`);
+  console.warn(`Removed ${name}: uploader ${uploaderUid || '(unknown)'} may not upload media (not an active super admin or operator).`);
 });
 
 /** gs path from a Firebase download URL (…/v0/b/{bucket}/o/{encoded path}?alt=media…), or null. */
@@ -444,7 +522,7 @@ function storagePathFromUrl(url: string): string | null {
 }
 
 export const deleteProductMedia = onCall(async request => {
-  await assertCallerIsSuperAdmin(request.auth);
+  await assertCallerIsContentEditor(request.auth);
   const urls = Array.isArray(request.data?.urls) ? (request.data.urls as unknown[]).slice(0, 50) : [];
   const bucket = getStorage().bucket();
   let deleted = 0;
