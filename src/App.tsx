@@ -228,7 +228,6 @@ const MainApp: React.FC = () => {
         onOpenAdminConsole={handleOpenAdmin}
         onSelectNavCategory={handleSelectNavCategory}
         adminStaffSession={adminSession}
-        hasNewArrivals={pickNewArrivals(products).length > 0}
         currentPage={route.page}
       />
 

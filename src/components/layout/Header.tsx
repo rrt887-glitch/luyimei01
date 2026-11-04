@@ -17,8 +17,6 @@ interface HeaderProps {
   onOpenAdminConsole: () => void;
   onSelectNavCategory: (category: string) => void;
   adminStaffSession?: StaffAccount | null;
-  /** Show the "新款" link (the homepage has a New arrivals row). */
-  hasNewArrivals?: boolean;
   /** The page shown (its menu link is marked as current). */
   currentPage?: 'home' | 'factory' | 'news';
 }
@@ -33,7 +31,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAdminConsole,
   onSelectNavCategory,
   adminStaffSession,
-  hasNewArrivals,
   currentPage = 'home'
 }) => {
   const { d, lang, setLang } = useI18n();
@@ -66,15 +63,13 @@ export const Header: React.FC<HeaderProps> = ({
     { href: '#products', label: d.nav.allProducts, category: 'all' },
     ...categories.map(c => ({ href: '#products', label: categoryLabel(c, lang), category: c.id }))
   ];
-  // 工厂介绍 / 公司新闻 are pages of their own (#/factory, #/news), always in the menu;
-  // 新款 only while products are marked as new arrivals.
+  // Menu order: 产品 (dropdown), 服务流程, 供货信息, 定制寻源, 工厂介绍 (#/factory), 公司新闻 (#/news).
   const navItems: NavItem[] = [
-    ...(hasNewArrivals ? [{ href: '#new', label: d.site.navNew }] : []),
-    { href: '#/factory', label: d.site.navFactory },
     { href: '#process', label: d.nav.process },
     { href: '#cases', label: d.nav.cases },
-    { href: '#/news', label: d.site.navNews },
-    { href: '#contact', label: d.nav.contact }
+    { href: '#contact', label: d.nav.contact },
+    { href: '#/factory', label: d.site.navFactory },
+    { href: '#/news', label: d.site.navNews }
   ];
 
   const handleNavClick = (category?: string) => {
